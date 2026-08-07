@@ -318,14 +318,18 @@ export default function Board({
                                         zIndex: 3,
                                     }}
                                 />
-                                {mark === 0 &&
-                                    (hintAction === "place" ? (
-                                        <Crown
-                                            className="pointer-events-none absolute z-[3] h-[50%] w-[50%] animate-pulse text-sky-700/55"/>
-                                    ) : (
-                                        <XMark
-                                            className="pointer-events-none absolute z-[3] h-[36%] w-[36%] animate-pulse text-sky-700/60"/>
-                                    ))}
+                                {/* A null action means "this square is wrong", not
+                                    "put a ✕ here" — it gets the ring on its own.
+                                    Falling through to the ✕ here advised the very
+                                    mark the hint was faulting. */}
+                                {mark === 0 && hintAction === "place" && (
+                                    <Crown
+                                        className="pointer-events-none absolute z-3 h-[50%] w-[50%] animate-pulse text-sky-700/55"/>
+                                )}
+                                {mark === 0 && hintAction === "cross" && (
+                                    <XMark
+                                        className="pointer-events-none absolute z-3 h-[36%] w-[36%] animate-pulse text-sky-700/60"/>
+                                )}
                             </>
                         )}
                     </button>

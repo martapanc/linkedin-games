@@ -191,6 +191,14 @@ level that would benefit from a Web Worker.
 - Under the lock a target toggles between empty and the mark being asked for,
   rather than cycling empty → ✕ → 👑. The hint wants one specific mark, so a
   mis-tap needs an escape that isn't a third, wrong mark.
+- **Mistake hints are the exception, and carry `action: null`.** They point at a
+  square you got wrong without prescribing what belongs there, so they lock to
+  that square but leave it cycling normally — which is also the fix: ✕ → 👑 on a
+  square that does hold a queen. Reading `action` as `place ? 👑 : ✕` quietly
+  folds them into "cross", and then the hint faulting your ✕ answers a tap by
+  wiping it to empty and pulsing a ghost ✕ in its place, advising the very mark
+  it just called wrong. Both the tap handler and the ghost renderer have to
+  branch on all three values, not two.
 - Mistakes are checked before any of that. The solver reasons from the marks on
   the board, so a single wrong one would let it prove something false — a
   confidently bogus hint being worse than none.

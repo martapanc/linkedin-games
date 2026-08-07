@@ -65,8 +65,14 @@ export default function QueensGame() {
         setHint(h);
     }, []);
 
-    /** The one mark a hint is asking for. Hints never ask you to clear a cell. */
-    const wantedMark = (h: Hint): Mark => (h.action === "place" ? 2 : 1);
+    /**
+     * The one mark a hint is asking for, or null when it isn't asking for one.
+     * Mistake hints carry `action: null` — they point at a square you got wrong
+     * without prescribing what belongs there, so they must not be folded into
+     * "cross" the way a `place ? 2 : 1` ternary would.
+     */
+    const wantedMark = (h: Hint): Mark | null =>
+        h.action === "place" ? 2 : h.action === "cross" ? 1 : null;
 
     // --- puzzle loading -------------------------------------------------------
     const install = useCallback(
@@ -118,11 +124,16 @@ export default function QueensGame() {
     const hintEvidence = useMemo(() => new Set(hint?.evidence ?? []), [hint]);
     const hintTargets = useMemo(() => new Set(hint?.targets ?? []), [hint]);
     // How much of the hint is still outstanding — the whole point of holding the
-    // lock is that this number is visible instead of remembered.
-    const hintLeft = useMemo(
-        () => (hint ? hint.targets.filter((t) => marks[t] !== wantedMark(hint)).length : 0),
-        [hint, marks],
-    );
+    // lock is that this number is visible instead of remembered. A hint that
+    // prescribes no mark has nothing to count.
+    const hintLeft = useMemo(() => {
+        if (!hint) return 0;
+        const want = wantedMark(hint);
+        return want === null ? 0 : hint.targets.filter((t) => marks[t] !== want).length;
+    }, [hint, marks]);
+    // A hint with no targets (the "All set" case) must not lock anything, or the
+    // board would freeze with nothing that could possibly release it.
+    const hintLock = !!hint && hint.targets.length > 0;
     // A finished board is fully described by its marks — no separate win flag.
     const won = useMemo(
         () => (puzzle && !busy ? isSolved(puzzle, marks) : false),
@@ -158,6 +169,20 @@ export default function QueensGame() {
         [puzzle, mode, today],
     );
 
+    /** empty → ✕ → 👑, the plain cycle a tap does when no hint is steering it. */
+    const cycled = useCallback(
+        (prev: Mark[], index: number): Mark => {
+            // A cell already showing an auto cross cycles on from that cross, so a
+            // tap on it gives you a queen rather than a redundant manual mark.
+            const showing =
+                prev[index] === 0 && autoCross && puzzle && attackedCells(puzzle, prev).has(index)
+                    ? 1
+                    : prev[index];
+            return (((showing as number) + 1) % 3) as Mark;
+        },
+        [puzzle, autoCross],
+    );
+
     const tap = useCallback(
         (index: number): Mark => {
             const prev = marksRef.current;
@@ -170,6 +195,23 @@ export default function QueensGame() {
             if (active) {
                 if (!active.targets.includes(index)) return prev[index];
                 const want = wantedMark(active);
+
+                if (want === null) {
+                    // A mistake hint prescribes nothing — it points at a square you
+                    // got wrong. So the cell cycles normally, which is also the fix:
+                    // ✕ → 👑 on a square that does hold a queen. Treating this as a
+                    // "cross" hint made the tap wipe the ✕ back to empty and then
+                    // pulse a ghost ✕ over it, advising the very mark it faulted.
+                    const cycledNext = prev.slice();
+                    cycledNext[index] = cycled(prev, index);
+                    setHistory((h) => [...h.slice(-200), prev]);
+                    setBoard(cycledNext);
+                    // The diagnosis no longer describes the board — drop it.
+                    setActiveHint(null);
+                    recordIfWon(cycledNext);
+                    return cycledNext[index];
+                }
+
                 // Toggle, not cycle: the hint asks for one specific mark, so a
                 // mis-tap needs an escape that isn't "some third mark".
                 const mark: Mark = prev[index] === want ? 0 : want;
@@ -183,22 +225,15 @@ export default function QueensGame() {
                 return mark;
             }
 
-            // A cell already showing an auto cross cycles on from that cross, so a
-            // tap on it gives you a queen rather than a redundant manual mark.
-            const showing =
-                prev[index] === 0 && autoCross && puzzle && attackedCells(puzzle, prev).has(index)
-                    ? 1
-                    : prev[index];
-            const mark = (((showing as number) + 1) % 3) as Mark;
             const next = prev.slice();
-            next[index] = mark;
+            next[index] = cycled(prev, index);
 
             setHistory((h) => [...h.slice(-200), prev]);
             setBoard(next);
             recordIfWon(next);
-            return mark;
+            return next[index];
         },
-        [puzzle, autoCross, setBoard, setActiveHint, recordIfWon],
+        [cycled, setBoard, setActiveHint, recordIfWon],
     );
 
     // Crosses can never complete a board, so no win check is needed here.
@@ -207,9 +242,9 @@ export default function QueensGame() {
         (indices: number[], newStroke: boolean) => {
             if (newStroke) strokePushed.current = false;
             const active = hintRef.current;
-            // Sweeping is how you satisfy a long cross hint quickly. A "place"
-            // hint has a single target, so there is nothing to sweep.
-            if (active && active.action === "place") return;
+            // Sweeping is how you satisfy a long cross hint quickly. "place" and
+            // mistake hints have a single target and nothing to sweep across.
+            if (active && active.action !== "cross") return;
             const allowed = active ? new Set(active.targets) : null;
 
             const prev = marksRef.current;
@@ -360,7 +395,7 @@ export default function QueensGame() {
                         hintEvidence={hintEvidence}
                         hintTargets={hintTargets}
                         hintAction={hint?.action ?? null}
-                        hintLock={!!hint}
+                        hintLock={hintLock}
                         autoCross={autoCross}
                         disabled={won}
                         onTap={tap}
@@ -404,13 +439,17 @@ export default function QueensGame() {
                         </button>
                     </div>
                     <p className="mt-1.5 text-xs text-sky-700/80 dark:text-sky-300/80">
-                        {hintLeft > 0
-                            ? `${hintLeft} ${hint.action === "place" ? "queen" : "✕"}${
-                                hintLeft > 1 ? "s" : ""
-                            } left — the rest of the board is locked until you place ${
-                                hintLeft > 1 ? "them" : "it"
-                            }, or dismiss.`
-                            : "Done — unlocking."}
+                        {hint.action === null
+                            ? hintLock
+                                ? "Change that square to carry on, or dismiss."
+                                : "Nothing to do here."
+                            : hintLeft > 0
+                                ? `${hintLeft} ${hint.action === "place" ? "queen" : "✕"}${
+                                    hintLeft > 1 ? "s" : ""
+                                } left — the rest of the board is locked until you place ${
+                                    hintLeft > 1 ? "them" : "it"
+                                }, or dismiss.`
+                                : "Done — unlocking."}
                     </p>
                 </div>
             )}
