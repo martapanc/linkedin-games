@@ -148,12 +148,18 @@ Fast enough to generate synchronously in the browser — no Web Worker needed.
   goes straight to a queen rather than a redundant manual mark.
 - **Hints explain, they don't spoil.** The same rule ladder that grades the
   puzzle is replayed from *your* board — seeded with your queens and crosses —
-  to find the next forced step, and reports the technique behind it: *"Between
-  them, the salmon area and the yellow area can only use columns 8 and 9. That
-  uses them up, so every other square there can be crossed out."* The squares
-  making the argument are tinted; the ones it resolves pulse. Mistakes are
-  checked first — the solver reasons from the marks on the board, so one wrong
-  mark would let it prove something false.
+  to find the next forced step, and names the technique behind it: *"These 3
+  colours need columns 6, 7 and 8 between them — nothing else there can be a
+  queen."*
+- The highlight carries the pointing so the words don't have to. While a hint
+  shows, everything irrelevant is **dimmed**; what stays bright is the reasoning,
+  and the squares to act on get a ring plus a ghost ✕ or 👑 of the move. That is
+  one idea rather than two competing decorations needing a legend — and it is
+  why the text says "this colour" instead of "the salmon area": naming a colour
+  is just a second, worse way of pointing at squares already lit up.
+- Mistakes are checked before any of that. The solver reasons from the marks on
+  the board, so a single wrong one would let it prove something false — a
+  confidently bogus hint being worse than none.
 - Live conflict highlighting, timer, streaks, and progress saved per board.
 - Progress is keyed by a **fingerprint of the region layout**, not just the seed:
   any change to the generator makes the same seed produce a different board, and

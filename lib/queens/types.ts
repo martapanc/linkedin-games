@@ -2,10 +2,10 @@ export const DIFFICULTIES = ["easy", "medium", "hard", "expert"] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
 
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
-  easy: "Easy",
-  medium: "Medium",
-  hard: "Hard",
-  expert: "Expert",
+    easy: "Easy",
+    medium: "Medium",
+    hard: "Hard",
+    expert: "Expert",
 };
 
 /**
@@ -14,15 +14,15 @@ export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
  * `solution[r]` is the column of the queen in row r (guaranteed unique).
  */
 export interface Puzzle {
-  n: number;
-  regions: number[][];
-  solution: number[];
-  difficulty: Difficulty;
-  /** Hardest deduction tier the logical solver needed (see TIER_NAMES). */
-  tier: number;
-  /** Weighted cost of the logical solve — used to grade within a tier. */
-  score: number;
-  seed: string;
+    n: number;
+    regions: number[][];
+    solution: number[];
+    difficulty: Difficulty;
+    /** Hardest deduction tier the logical solver needed (see TIER_NAMES). */
+    tier: number;
+    /** Weighted cost of the logical solve — used to grade within a tier. */
+    score: number;
+    seed: string;
 }
 
 export type Mark = 0 | 1 | 2; // empty | cross | queen
