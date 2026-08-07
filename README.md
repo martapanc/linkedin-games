@@ -220,6 +220,15 @@ level that would benefit from a Web Worker.
   `position: relative` leaves `z-index: auto`, which is *not* a stacking
   context, so the line spans' z-indices escaped the cell and painted over the
   "Solved in" overlay — 81 cells' worth of grid lines straight across it.
+- **The clock stops when the tab is hidden**, on `visibilitychange` — a tab
+  switch or a phone going to sleep. Not window blur, which would also stop it
+  while the board is still on screen, the moment you click the address bar.
+- Elapsed time is read off the clock rather than counted in ticks. Adding 1000
+  per interval drifted: background tabs get throttled to a crawl, and a long
+  synchronous Master generation swallows ticks outright. A banked total plus the
+  start of the run in progress means a pause loses nothing and resuming can't
+  double-count — and the recorded win reads the clock at the winning tap instead
+  of the last tick.
 - Live conflict highlighting, timer, streaks, and progress saved per board.
 - Progress is keyed by a **fingerprint of the region layout**, not just the seed:
   any change to the generator makes the same seed produce a different board, and

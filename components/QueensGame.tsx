@@ -49,7 +49,16 @@ export default function QueensGame() {
     // The authoritative copy of the board. A drag fires many events between
     // renders, so handlers read and write this rather than the props/state copy.
     const marksRef = useRef<Mark[]>([]);
+    /**
+     * Elapsed time is counted from the clock, not by counting ticks: `elapsedRef`
+     * banks the time from finished run segments and `segmentAt` is when the
+     * current one started, or null while stopped. Adding 1000 per interval was
+     * already drifting — background tabs get throttled to a crawl and a long
+     * synchronous board generation swallows ticks outright — and pausing an
+     * inaccurate counter would only have hidden that better.
+     */
     const elapsedRef = useRef(0);
+    const segmentAt = useRef<number | null>(null);
     const recordedRef = useRef<string | null>(null);
     // Read by the pointer handlers for the same reason as `marksRef` — and so the
     // handlers keep a stable identity instead of re-registering on every hint.
@@ -81,6 +90,9 @@ export default function QueensGame() {
             const start = saved?.marks ?? new Array<Mark>(p.n * p.n).fill(0);
             setPuzzle(p);
             setBoard(start);
+            // Clear the in-flight segment too, or the new board inherits the time
+            // since the old one's last tick.
+            segmentAt.current = null;
             elapsedRef.current = saved?.elapsed ?? 0;
             setElapsed(elapsedRef.current);
             recordedRef.current = saved?.won ? p.seed : null;
@@ -141,15 +153,40 @@ export default function QueensGame() {
     );
 
     // --- timer ----------------------------------------------------------------
-    const running = !!puzzle && !won && !busy;
+    // Switch tabs and the clock stops. `visibilitychange` rather than window
+    // blur: it is the signal that fires for a tab switch and for a phone being
+    // locked or backgrounded, and it will not stop the clock while the board is
+    // still on screen — which blur does the moment you click the address bar.
+    const [hidden, setHidden] = useState(false);
+    useEffect(() => {
+        const sync = () => setHidden(document.hidden);
+        sync();
+        document.addEventListener("visibilitychange", sync);
+        return () => document.removeEventListener("visibilitychange", sync);
+    }, []);
+
+    const running = !!puzzle && !won && !busy && !hidden;
+
+    const readElapsed = useCallback(
+        () =>
+            elapsedRef.current +
+            (segmentAt.current === null ? 0 : Date.now() - segmentAt.current),
+        [],
+    );
+
     useEffect(() => {
         if (!running) return;
-        const id = setInterval(() => {
-            elapsedRef.current += 1000;
+        segmentAt.current = Date.now();
+        const id = setInterval(() => setElapsed(readElapsed()), 500);
+        return () => {
+            clearInterval(id);
+            // Bank the part-second on the way out, so a pause loses nothing and
+            // resuming does not double-count what was already banked.
+            elapsedRef.current = readElapsed();
+            segmentAt.current = null;
             setElapsed(elapsedRef.current);
-        }, 1000);
-        return () => clearInterval(id);
-    }, [running]);
+        };
+    }, [running, readElapsed]);
 
     // --- persistence ----------------------------------------------------------
     useEffect(() => {
@@ -163,10 +200,12 @@ export default function QueensGame() {
         (next: Mark[]) => {
             if (puzzle && recordedRef.current !== puzzle.seed && isSolved(puzzle, next)) {
                 recordedRef.current = puzzle.seed;
-                setStats(recordWin(puzzle.difficulty, elapsedRef.current, mode === "daily" ? today : null));
+                // Read the clock, not the last tick — the winning tap lands
+                // somewhere inside the current interval.
+                setStats(recordWin(puzzle.difficulty, readElapsed(), mode === "daily" ? today : null));
             }
         },
-        [puzzle, mode, today],
+        [puzzle, mode, today, readElapsed],
     );
 
     /** empty → ✕ → 👑, the plain cycle a tap does when no hint is steering it. */
