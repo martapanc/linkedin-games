@@ -1,12 +1,17 @@
 {
-  "name": "linkedin-games",
+  "name": "queens-pwa",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "bench": "tsx scripts/bench.ts",
+    "phone": "next build && next start -p 3005",
+    "phone:on": "tailscale serve --bg --https=443 http://localhost:3005",
+    "phone:off": "tailscale serve --https=443 off",
+    "phone:status": "tailscale serve status"
   },
   "dependencies": {
     "next": "16.3.0",
@@ -21,6 +26,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
+    "tsx": "^4.23.9",
     "typescript": "^5"
   },
   "packageManager": "pnpm@10.33.0"
