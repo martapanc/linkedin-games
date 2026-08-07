@@ -194,6 +194,24 @@ level that would benefit from a Web Worker.
 - Mistakes are checked before any of that. The solver reasons from the marks on
   the board, so a single wrong one would let it prove something false — a
   confidently bogus hint being worse than none.
+- **Region outlines are overlay spans, not CSS borders.** A 3px border mitres
+  diagonally into the 1px border beside it, so every crossing had a notch bitten
+  out of it and the outlines read as dashed. Spans butt together instead, with
+  the strong ones a layer above so a weak line can never cut through one. They
+  paint after the hint dimming, so a dimmed cell keeps its outline at full
+  strength, and the hint ring is inset by the cell's own line widths to sit
+  inside them the way it did when they were real borders.
+- **Each cell also owns the vertex at its top-left.** A cell draws only its top
+  and left lines — its right and bottom are the neighbours' near edges — so
+  where a boundary *turns*, both spans stop at their own cell and leave a 3px
+  notch in the elbow. The cell diagonally past the corner fills it, when either
+  of the two edges on the far side of that vertex is a boundary. Overhanging the
+  spans instead does not work: cells are isolated stacking contexts with opaque
+  backgrounds, so anything spilling into a later sibling is painted over by it.
+- That `isolation: isolate` on each cell is load-bearing for another reason too.
+  `position: relative` leaves `z-index: auto`, which is *not* a stacking
+  context, so the line spans' z-indices escaped the cell and painted over the
+  "Solved in" overlay — 81 cells' worth of grid lines straight across it.
 - Live conflict highlighting, timer, streaks, and progress saved per board.
 - Progress is keyed by a **fingerprint of the region layout**, not just the seed:
   any change to the generator makes the same seed produce a different board, and

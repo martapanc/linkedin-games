@@ -17,14 +17,21 @@ function XMark({className}: { className?: string }) {
     );
 }
 
+/**
+ * Every x is mirrored about 12 — outer points 3.4/20.6, valleys 8.15/15.85,
+ * base 4.8/19.2, bar and dot centred — so the shape balances on its own axis.
+ * The previous one was built from arcs that didn't mirror, which is what made
+ * it look like it was leaning.
+ */
 function Crown({className}: { className?: string }) {
     return (
         <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+            <circle cx="12" cy="3.8" r="1.35" fill="currentColor"/>
             <path
                 fill="currentColor"
-                d="M3 8.5a1.3 1.3 0 1 1 1.9 1.14l1.4 3.4 3.3-3.06a1.3 1.3 0 1 1 2.8 0l3.3 3.06 1.4-3.4A1.3 1.3 0 1 1 21 8.5c0 .5-.28.93-.7 1.15l-1.5 7.1a1 1 0 0 1-.98.79H6.18a1 1 0 0 1-.98-.79l-1.5-7.1A1.3 1.3 0 0 1 3 8.5Z"
+                d="M3.4 7.6 8.15 12.3 12 6.3 15.85 12.3 20.6 7.6 19.2 17.8 4.8 17.8Z"
             />
-            <rect x="5.2" y="18.4" width="13.6" height="2.1" rx="1" fill="currentColor"/>
+            <rect x="4" y="19.2" width="16" height="2.3" rx="1.15" fill="currentColor"/>
         </svg>
     );
 }
@@ -183,6 +190,28 @@ export default function Board({
                 const weak = "var(--edge-weak)";
                 const topStrong = r === 0 || regions[r - 1][c] !== g;
                 const leftStrong = c === 0 || regions[r][c - 1] !== g;
+                // Only the last row/column draw their far edge; every other one is
+                // the next cell's near edge, so each line has exactly one owner.
+                const topW = topStrong ? 3 : 1;
+                const leftW = leftStrong ? 3 : 1;
+                const rightW = c === n - 1 ? 3 : 0;
+                const bottomW = r === n - 1 ? 3 : 0;
+
+                // Four edges meet at this cell's top-left vertex: our own top and
+                // left, plus the two on the far side of it, which belong to the
+                // cells above and to the left. Our spans stop at our own bounds, so
+                // when a boundary *turns* through this vertex — dark down the right
+                // and along the bottom of the cell up-left of us — both spans stop
+                // short and leave a 3px notch in the elbow. Nobody owns that square
+                // but us. Overhanging the spans instead would not work: cells are
+                // isolated stacking contexts with opaque backgrounds, so anything
+                // spilling into a later sibling is painted over by it.
+                const cornerStrong =
+                    r > 0 &&
+                    c > 0 &&
+                    (regions[r - 1][c - 1] !== regions[r - 1][c] ||
+                        regions[r - 1][c - 1] !== regions[r][c - 1]);
+                const needsCorner = !topStrong && !leftStrong && cornerStrong;
 
                 return (
                     <button
@@ -205,23 +234,21 @@ export default function Board({
                         aria-disabled={locked(i) || undefined}
                         onPointerDown={(e) => handleDown(e, i)}
                         onPointerEnter={() => handleEnter(i)}
-                        className={`relative flex aspect-square items-center justify-center ${
+                        // `isolate` is load-bearing: `relative` alone leaves z-index
+                        // auto, which is not a stacking context, so the edge spans'
+                        // z-indices below would escape the cell and paint over the
+                        // win overlay. This keeps them scoped to their own cell.
+                        className={`relative isolate flex aspect-square items-center justify-center ${
                             locked(i) && !disabled ? "cursor-not-allowed" : ""
                         }`}
-                        style={{
-                            backgroundColor: REGION_COLORS[g % REGION_COLORS.length],
-                            borderTop: `${topStrong ? 3 : 1}px solid ${topStrong ? strong : weak}`,
-                            borderLeft: `${leftStrong ? 3 : 1}px solid ${leftStrong ? strong : weak}`,
-                            borderRight: c === n - 1 ? `3px solid ${strong}` : undefined,
-                            borderBottom: r === n - 1 ? `3px solid ${strong}` : undefined,
-                        }}
+                        style={{backgroundColor: REGION_COLORS[g % REGION_COLORS.length]}}
                     >
                         {(mark === 1 || auto) && (
                             <XMark className="h-[27%] w-[27%] text-black/55"/>
                         )}
                         {mark === 2 && (
                             <Crown
-                                className={`h-[62%] w-[62%] drop-shadow-sm ${
+                                className={`h-[50%] w-[50%] drop-shadow-sm ${
                                     bad ? "text-red-600" : "text-neutral-900"
                                 }`}
                             />
@@ -232,17 +259,72 @@ export default function Board({
                         {faded && (
                             <span className="pointer-events-none absolute inset-0 bg-[var(--background)]/70"/>
                         )}
+
+                        {/*
+                          Grid lines are overlay spans rather than CSS borders. A 3px
+                          border mitres diagonally into the 1px border beside it, which
+                          notches a visible gap out of every crossing — the region
+                          outlines came out looking dashed. Spans just butt together,
+                          and the strong ones sit a layer above so a weak line can
+                          never cut through one. Drawn after the washes so a dimmed
+                          cell keeps its outline at full strength.
+                        */}
+                        <span
+                            className="pointer-events-none absolute inset-x-0 top-0"
+                            style={{
+                                height: topW,
+                                background: topStrong ? strong : weak,
+                                zIndex: topStrong ? 2 : 1,
+                            }}
+                        />
+                        <span
+                            className="pointer-events-none absolute inset-y-0 left-0"
+                            style={{
+                                width: leftW,
+                                background: leftStrong ? strong : weak,
+                                zIndex: leftStrong ? 2 : 1,
+                            }}
+                        />
+                        {rightW > 0 && (
+                            <span
+                                className="pointer-events-none absolute inset-y-0 right-0"
+                                style={{width: rightW, background: strong, zIndex: 2}}
+                            />
+                        )}
+                        {bottomW > 0 && (
+                            <span
+                                className="pointer-events-none absolute inset-x-0 bottom-0"
+                                style={{height: bottomW, background: strong, zIndex: 2}}
+                            />
+                        )}
+                        {needsCorner && (
+                            <span
+                                className="pointer-events-none absolute left-0 top-0"
+                                style={{width: 3, height: 3, background: strong, zIndex: 2}}
+                            />
+                        )}
+
                         {isTarget && (
                             <>
+                                {/* Inset by this cell's own lines so the ring sits inside
+                                    them, the way it did when they were real borders. */}
                                 <span
-                                    className="pointer-events-none absolute inset-0 ring-[3px] ring-inset ring-sky-600"/>
+                                    className="pointer-events-none absolute ring-[3px] ring-inset ring-sky-600"
+                                    style={{
+                                        top: topW,
+                                        left: leftW,
+                                        right: rightW,
+                                        bottom: bottomW,
+                                        zIndex: 3,
+                                    }}
+                                />
                                 {mark === 0 &&
                                     (hintAction === "place" ? (
                                         <Crown
-                                            className="pointer-events-none absolute h-[62%] w-[62%] animate-pulse text-sky-700/55"/>
+                                            className="pointer-events-none absolute z-[3] h-[50%] w-[50%] animate-pulse text-sky-700/55"/>
                                     ) : (
                                         <XMark
-                                            className="pointer-events-none absolute h-[36%] w-[36%] animate-pulse text-sky-700/60"/>
+                                            className="pointer-events-none absolute z-[3] h-[36%] w-[36%] animate-pulse text-sky-700/60"/>
                                     ))}
                             </>
                         )}
