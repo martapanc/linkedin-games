@@ -461,13 +461,17 @@ export function analyze(n: number, regions: number[][]): Analysis {
 /**
  * Thresholds calibrated against ~1700 generated boards (n = 7..10). The tier —
  * the hardest technique the puzzle *forces* — dominates; `effort` (how much of
- * that technique you need, normalised by board size) splits each tier in two.
+ * that technique you need, normalised by board size) splits a tier in two.
+ *
+ * Tier 5 gets a band to itself. Trial reasoning is a different *kind* of move
+ * from the rest of the ladder — you stop reading the board and start assuming
+ * — so grading it by volume alongside tier 4 buried a real step change.
  */
 function rate(tier: number, effort: number): Difficulty {
     if (tier <= 2) return "easy";
-    if (tier === 3) return effort < 10 ? "medium" : "hard";
-    if (tier === 4) return effort < 18 ? "hard" : "expert";
-    return "expert";
+    if (tier === 3) return effort < 12 ? "medium" : "hard";
+    if (tier === 4) return effort < 14 ? "hard" : "expert";
+    return "master";
 }
 
 // ---------------------------------------------------------------------------

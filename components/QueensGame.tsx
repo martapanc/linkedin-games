@@ -51,11 +51,22 @@ export default function QueensGame() {
     const marksRef = useRef<Mark[]>([]);
     const elapsedRef = useRef(0);
     const recordedRef = useRef<string | null>(null);
+    // Read by the pointer handlers for the same reason as `marksRef` — and so the
+    // handlers keep a stable identity instead of re-registering on every hint.
+    const hintRef = useRef<Hint | null>(null);
 
     const setBoard = useCallback((next: Mark[]) => {
         marksRef.current = next;
         setMarks(next);
     }, []);
+
+    const setActiveHint = useCallback((h: Hint | null) => {
+        hintRef.current = h;
+        setHint(h);
+    }, []);
+
+    /** The one mark a hint is asking for. Hints never ask you to clear a cell. */
+    const wantedMark = (h: Hint): Mark => (h.action === "place" ? 2 : 1);
 
     // --- puzzle loading -------------------------------------------------------
     const install = useCallback(
@@ -68,10 +79,10 @@ export default function QueensGame() {
             setElapsed(elapsedRef.current);
             recordedRef.current = saved?.won ? p.seed : null;
             setHistory([]);
-            setHint(null);
+            setActiveHint(null);
             setBusy(false);
         },
-        [setBoard],
+        [setBoard, setActiveHint],
     );
 
     useEffect(() => {
@@ -106,6 +117,12 @@ export default function QueensGame() {
     const queensPlaced = marks.filter((m) => m === 2).length;
     const hintEvidence = useMemo(() => new Set(hint?.evidence ?? []), [hint]);
     const hintTargets = useMemo(() => new Set(hint?.targets ?? []), [hint]);
+    // How much of the hint is still outstanding — the whole point of holding the
+    // lock is that this number is visible instead of remembered.
+    const hintLeft = useMemo(
+        () => (hint ? hint.targets.filter((t) => marks[t] !== wantedMark(hint)).length : 0),
+        [hint, marks],
+    );
     // A finished board is fully described by its marks — no separate win flag.
     const won = useMemo(
         () => (puzzle && !busy ? isSolved(puzzle, marks) : false),
@@ -130,9 +147,42 @@ export default function QueensGame() {
     }, [puzzle, marks, elapsed, won, busy]);
 
     // --- actions --------------------------------------------------------------
+    // Recording the win belongs in the handler that caused it, not an effect.
+    const recordIfWon = useCallback(
+        (next: Mark[]) => {
+            if (puzzle && recordedRef.current !== puzzle.seed && isSolved(puzzle, next)) {
+                recordedRef.current = puzzle.seed;
+                setStats(recordWin(puzzle.difficulty, elapsedRef.current, mode === "daily" ? today : null));
+            }
+        },
+        [puzzle, mode, today],
+    );
+
     const tap = useCallback(
         (index: number): Mark => {
             const prev = marksRef.current;
+            const active = hintRef.current;
+
+            // While a hint is up the board is locked to that hint's squares. A
+            // "cross out these six cells" hint used to vanish on the first tap,
+            // leaving the other five to be remembered from a message that was no
+            // longer on screen. Dismiss is the way back to free play.
+            if (active) {
+                if (!active.targets.includes(index)) return prev[index];
+                const want = wantedMark(active);
+                // Toggle, not cycle: the hint asks for one specific mark, so a
+                // mis-tap needs an escape that isn't "some third mark".
+                const mark: Mark = prev[index] === want ? 0 : want;
+                const next = prev.slice();
+                next[index] = mark;
+
+                setHistory((h) => [...h.slice(-200), prev]);
+                setBoard(next);
+                if (active.targets.every((t) => next[t] === want)) setActiveHint(null);
+                recordIfWon(next);
+                return mark;
+            }
+
             // A cell already showing an auto cross cycles on from that cross, so a
             // tap on it gives you a queen rather than a redundant manual mark.
             const showing =
@@ -145,16 +195,10 @@ export default function QueensGame() {
 
             setHistory((h) => [...h.slice(-200), prev]);
             setBoard(next);
-            setHint(null);
-
-            // Recording the win belongs in the handler that caused it, not an effect.
-            if (puzzle && recordedRef.current !== puzzle.seed && isSolved(puzzle, next)) {
-                recordedRef.current = puzzle.seed;
-                setStats(recordWin(puzzle.difficulty, elapsedRef.current, mode === "daily" ? today : null));
-            }
+            recordIfWon(next);
             return mark;
         },
-        [puzzle, mode, today, autoCross, setBoard],
+        [puzzle, autoCross, setBoard, setActiveHint, recordIfWon],
     );
 
     // Crosses can never complete a board, so no win check is needed here.
@@ -162,9 +206,16 @@ export default function QueensGame() {
     const paint = useCallback(
         (indices: number[], newStroke: boolean) => {
             if (newStroke) strokePushed.current = false;
+            const active = hintRef.current;
+            // Sweeping is how you satisfy a long cross hint quickly. A "place"
+            // hint has a single target, so there is nothing to sweep.
+            if (active && active.action === "place") return;
+            const allowed = active ? new Set(active.targets) : null;
+
             const prev = marksRef.current;
             let next: Mark[] | null = null;
             for (const i of indices) {
+                if (allowed && !allowed.has(i)) continue;
                 if (prev[i] === 0) {
                     next = next ?? prev.slice();
                     next[i] = 1;
@@ -178,25 +229,29 @@ export default function QueensGame() {
                 strokePushed.current = true;
             }
             setBoard(next);
-            setHint(null);
+            if (active && active.targets.every((t) => next![t] === 1)) setActiveHint(null);
         },
-        [setBoard],
+        [setBoard, setActiveHint],
     );
 
+    // Undo and Clear step outside what the hint is asking for, so they release
+    // the lock rather than leaving it pointing at a board that moved.
     const undo = () => {
         if (!history.length) return;
+        setActiveHint(null);
         setBoard(history[history.length - 1]);
         setHistory(history.slice(0, -1));
     };
 
     const clear = () => {
         if (!puzzle) return;
+        setActiveHint(null);
         setHistory((h) => [...h.slice(-200), marksRef.current]);
         setBoard(new Array<Mark>(puzzle.n * puzzle.n).fill(0));
     };
 
     const askHint = () => {
-        if (puzzle) setHint(getHint(puzzle, marks));
+        if (puzzle) setActiveHint(getHint(puzzle, marks));
     };
 
     const changeMode = (m: Mode) => {
@@ -305,6 +360,7 @@ export default function QueensGame() {
                         hintEvidence={hintEvidence}
                         hintTargets={hintTargets}
                         hintAction={hint?.action ?? null}
+                        hintLock={!!hint}
                         autoCross={autoCross}
                         disabled={won}
                         onTap={tap}
@@ -332,11 +388,30 @@ export default function QueensGame() {
 
             {hint && (
                 <div className="rounded-lg bg-sky-500/10 px-3 py-2.5 text-sm">
-          <span
-              className="mr-2 rounded bg-sky-600 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
-            {hint.title}
-          </span>
-                    <span className="text-sky-800 dark:text-sky-200">{hint.text}</span>
+                    <div className="flex items-start gap-2">
+                        <p className="flex-1">
+              <span
+                  className="mr-2 rounded bg-sky-600 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
+                {hint.title}
+              </span>
+                            <span className="text-sky-800 dark:text-sky-200">{hint.text}</span>
+                        </p>
+                        <button
+                            onClick={() => setActiveHint(null)}
+                            className="shrink-0 rounded-md bg-sky-600/15 px-2 py-1 text-xs font-semibold text-sky-800 dark:text-sky-200"
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                    <p className="mt-1.5 text-xs text-sky-700/80 dark:text-sky-300/80">
+                        {hintLeft > 0
+                            ? `${hintLeft} ${hint.action === "place" ? "queen" : "✕"}${
+                                hintLeft > 1 ? "s" : ""
+                            } left — the rest of the board is locked until you place ${
+                                hintLeft > 1 ? "them" : "it"
+                            }, or dismiss.`
+                            : "Done — unlocking."}
+                    </p>
                 </div>
             )}
 

@@ -40,6 +40,8 @@ interface BoardProps {
     hintTargets: Set<number>;
     /** What the hint says to do with its targets. */
     hintAction: "place" | "cross" | null;
+    /** While set, only `hintTargets` accept input — everything else is inert. */
+    hintLock: boolean;
     /** Crosses derived from the placed queens, rendered but never stored. */
     autoCross: boolean;
     disabled?: boolean;
@@ -73,12 +75,19 @@ export default function Board({
                                   hintEvidence,
                                   hintTargets,
                                   hintAction,
+                                  hintLock,
                                   autoCross,
                                   disabled,
                                   onTap,
                                   onPaint,
                               }: BoardProps) {
     const {n, regions} = puzzle;
+    // The lock is enforced in the parent too — this keeps the pointer plumbing
+    // from starting sweeps that would be discarded cell by cell anyway.
+    const locked = useCallback(
+        (i: number) => disabled || (hintLock && !hintTargets.has(i)),
+        [disabled, hintLock, hintTargets],
+    );
     // Dragging paints crosses across empty cells, like the original. All mark
     // logic lives in the parent, which holds the authoritative, always-fresh
     // state — a drag fires many events between renders, so props go stale.
@@ -111,7 +120,7 @@ export default function Board({
 
     const handleDown = useCallback(
         (e: React.PointerEvent<HTMLButtonElement>, i: number) => {
-            if (disabled) return;
+            if (locked(i)) return;
             e.preventDefault();
             // Touch implicitly captures the pointer to this button, which would stop
             // every other cell from ever seeing pointerenter. Hand it back.
@@ -121,7 +130,7 @@ export default function Board({
             lastCell.current = i;
             painting.current = false;
         },
-        [disabled],
+        [locked],
     );
 
     const handleEnter = useCallback(
@@ -190,9 +199,15 @@ export default function Board({
                                         : ""
                         }`}
                         disabled={disabled}
+                        // Not the `disabled` attribute: a disabled button fires no
+                        // pointer events, and a sweep across the hint's cells has to
+                        // survive crossing the locked ones in between.
+                        aria-disabled={locked(i) || undefined}
                         onPointerDown={(e) => handleDown(e, i)}
                         onPointerEnter={() => handleEnter(i)}
-                        className="relative flex aspect-square items-center justify-center"
+                        className={`relative flex aspect-square items-center justify-center ${
+                            locked(i) && !disabled ? "cursor-not-allowed" : ""
+                        }`}
                         style={{
                             backgroundColor: REGION_COLORS[g % REGION_COLORS.length],
                             borderTop: `${topStrong ? 3 : 1}px solid ${topStrong ? strong : weak}`,
@@ -202,7 +217,7 @@ export default function Board({
                         }}
                     >
                         {(mark === 1 || auto) && (
-                            <XMark className="h-[36%] w-[36%] text-black/55"/>
+                            <XMark className="h-[27%] w-[27%] text-black/55"/>
                         )}
                         {mark === 2 && (
                             <Crown

@@ -37,14 +37,26 @@ const STYLE: Record<Difficulty, GrowthStyle> = {
     medium: {stick: 0.6, balance: 0.3},
     hard: {stick: 0.4, balance: 0.55},
     expert: {stick: 0.15, balance: 0.85},
+    // Pushing past expert's settings doesn't help: sampling says stick 0.05 /
+    // balance 0.95 yields *fewer* tier-5 boards, not more. Master is reached by
+    // being choosier about the result, not by growing weirder regions.
+    master: {stick: 0.15, balance: 0.85},
 };
 
-/** Board sizes that yield a good supply of each rating. */
+/**
+ * Board sizes that yield a good supply of each rating.
+ *
+ * Size is a feel dial, not a difficulty dial — `effort` is normalised per row,
+ * so a compact 10x10 grades the same as a compact 8x8 and only costs more to
+ * generate. The ladder widens anyway because a bigger grid *looks* like the
+ * step up the rating just earned.
+ */
 export const DEFAULT_SIZE: Record<Difficulty, number> = {
     easy: 7,
     medium: 8,
-    hard: 8,
+    hard: 9,
     expert: 9,
+    master: 10,
 };
 
 /** One queen per row and column, with |Δcolumn| >= 2 between adjacent rows. */
@@ -352,7 +364,10 @@ export function generatePuzzle({
                                    n,
                                    difficulty,
                                    seed,
-                                   budgetMs = 2500,
+                                   // Cost per attempt climbs steeply with n while the hit rate falls, so a
+                                   // flat budget quietly demotes big boards: at 10x10 a 2.5s cap handed back
+                                   // an expert board roughly one run in twenty. Buy the tail more time.
+                                   budgetMs = n >= 10 ? 6000 : 2500,
                                    maxAttempts = 600,
                                }: GenerateOptions): Puzzle {
     const rng = rngFromSeed(seed);

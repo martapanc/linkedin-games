@@ -1,4 +1,4 @@
-export const DIFFICULTIES = ["easy", "medium", "hard", "expert"] as const;
+export const DIFFICULTIES = ["easy", "medium", "hard", "expert", "master"] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
 
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
@@ -6,6 +6,7 @@ export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
     medium: "Medium",
     hard: "Hard",
     expert: "Expert",
+    master: "Master",
 };
 
 /**

@@ -17,7 +17,7 @@ pnpm phone      # build + serve on :3005  (leave running)
 pnpm phone:on   # expose it over HTTPS, tailnet-only
 ```
 
-Then open **https://martas-macbook-pro.tail89fdd1.ts.net** on the phone and use
+Then open Tailnet URL on the phone and use
 *Share → Add to Home Screen*. `pnpm phone:off` tears the proxy down;
 `pnpm phone:status` shows what's exposed.
 
@@ -92,8 +92,14 @@ rules are ordered easiest-first (`analyze()` in `lib/queens/solver.ts`):
 
 The solver applies the cheapest rule that fires, then rescans from the top. The
 rating is the highest tier reached; a normalised `effort` score (weighted rule
-count ÷ `n`) splits each tier in two. Boards the logical solver *cannot* finish
+count ÷ `n`) splits a tier in two. Boards the logical solver *cannot* finish
 would require guessing and are rejected outright.
+
+Tier 5 gets a band to itself — **Master**. Contradiction is a different *kind*
+of move from the rest of the ladder: you stop reading the board and start
+assuming. Grading it by volume alongside tier 4 buried that step change, and
+sampling says tier-5 boards are a steady 15–23% of output at 9×9 and 10×10, so
+there is plenty to draw on.
 
 Thresholds were calibrated against ~1700 generated boards rather than guessed —
 score scales with board size, which is why it is normalised by `n`.
@@ -101,9 +107,11 @@ score scales with board size, which is why it is normalised by `n`.
 ### Two things that turned out to be backwards
 
 **Region shape is a weak dial.** Sweeping the growth parameters moved mean
-difficulty only from tier 3.3 to 3.7, and every setting produced all four
+difficulty only from tier 3.3 to 3.7, and every setting produced all five
 ratings. The grader doing rejection sampling is what actually hits the target,
-not the shaping.
+not the shaping. Pushing past the Expert settings makes this concrete: growing
+weirder regions (stick 0.05 / balance 0.95) yields *fewer* tier-5 boards, not
+more, so Master reuses Expert's style and simply asks for more.
 
 **Snaking regions are *easier*, not harder.** The intuitive guess is that long
 interleaved tendrils are nastier. Measured, the opposite holds: a region
@@ -115,17 +123,33 @@ Repair also had to be capped for looks — left alone it happily grew one blob
 over a third of the board (worst case 43 of 64 cells), so region sizes are
 clamped to `[2, 2n]`.
 
+### Board size is a feel dial, not a difficulty dial
+
+`effort` is normalised per row, so a compact 10×10 grades the same as a compact
+8×8 and only costs more to generate. Sizes still widen up the ladder, because a
+bigger grid *looks* like the step up the rating just earned — not because it is
+what makes the board hard.
+
+The cost is real, though: at 10×10 a flat 2.5s generation budget quietly handed
+back an Expert board about one run in twenty, so boards with `n >= 10` get 6s.
+
 ### Current calibration
 
-`pnpm bench` — 240 boards, all on-target, none broken:
+`pnpm bench` — each difficulty at the size the app ships it at, 20 boards each,
+all on-target, none broken:
 
-| Size | Easy | Medium | Hard | Expert |
-|------|------|--------|------|--------|
-| 7×7 | 9ms · tier 2 | 4ms · tier 3 | 2ms · tier 3.8 | 3ms · tier 4.7 |
-| 8×8 | 39ms · tier 2 | 15ms · tier 3 | 10ms · tier 3.9 | 12ms · tier 4.5 |
-| 9×9 | 356ms · tier 2 | 65ms · tier 3 | 43ms · tier 4 | 81ms · tier 4.6 |
+| Difficulty | Size | Gen (avg / max) | Tier | Score |
+|------------|------|-----------------|------|-------|
+| Easy | 7×7 | 9ms · 30ms | 2 (Locked candidates) | 8 |
+| Medium | 8×8 | 12ms · 59ms | 3 (Adjacency squeeze) | 51 |
+| Hard | 9×9 | 60ms · 254ms | 4 (Hall set) | 93 |
+| Expert | 9×9 | 114ms · 313ms | 4 (Hall set) | 173 |
+| Master | 10×10 | 700ms · 3184ms | 5 (Contradiction) | 374 |
 
-Fast enough to generate synchronously in the browser — no Web Worker needed.
+Everything up to Expert is fast enough to generate synchronously in the browser.
+Master can block the main thread for a couple of seconds on a phone; it paints
+"Generating a board…" first, so the wait is at least honest, but it is the one
+level that would benefit from a Web Worker.
 
 ## The app
 
@@ -157,6 +181,16 @@ Fast enough to generate synchronously in the browser — no Web Worker needed.
   one idea rather than two competing decorations needing a legend — and it is
   why the text says "this colour" instead of "the salmon area": naming a colour
   is just a second, worse way of pointing at squares already lit up.
+- **A hint holds the board until you've acted on it.** A hint that says "cross
+  out these six" used to vanish on the first tap, leaving the other five to be
+  remembered from a message no longer on screen. Now only the hint's own squares
+  accept input while it is up, the panel counts down what's outstanding, and it
+  releases itself on the last one. Sweeping still works across the gaps — the
+  locked cells in between are skipped rather than blocking the drag. **Dismiss**
+  is always there for when you'd rather just get back to playing.
+- Under the lock a target toggles between empty and the mark being asked for,
+  rather than cycling empty → ✕ → 👑. The hint wants one specific mark, so a
+  mis-tap needs an escape that isn't a third, wrong mark.
 - Mistakes are checked before any of that. The solver reasons from the marks on
   the board, so a single wrong one would let it prove something false — a
   confidently bogus hint being worse than none.

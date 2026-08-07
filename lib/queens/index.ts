@@ -16,7 +16,7 @@ const DAILY_RAMP: Difficulty[] = [
     "medium",
     "medium",
     "hard",
-    "expert", // Sat
+    "master", // Sat
 ];
 
 export function dailyDifficulty(date: Date = new Date()): Difficulty {
