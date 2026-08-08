@@ -23,9 +23,9 @@ function XMark({className}: { className?: string }) {
  * The previous one was built from arcs that didn't mirror, which is what made
  * it look like it was leaning.
  */
-function Crown({className}: { className?: string }) {
+function Crown({className, style}: { className?: string; style?: React.CSSProperties }) {
     return (
-        <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+        <svg viewBox="0 0 24 24" className={className} style={style} aria-hidden="true">
             <circle cx="12" cy="3.8" r="1.35" fill="currentColor"/>
             <path
                 fill="currentColor"
@@ -49,6 +49,8 @@ interface BoardProps {
     hintAction: "place" | "cross" | null;
     /** While set, only `hintTargets` accept input — everything else is inert. */
     hintLock: boolean;
+    /** Solved — send a wave of pops across the placed queens. */
+    celebrate?: boolean;
     /** Crosses derived from the placed queens, rendered but never stored. */
     autoCross: boolean;
     disabled?: boolean;
@@ -83,6 +85,7 @@ export default function Board({
                                   hintTargets,
                                   hintAction,
                                   hintLock,
+                                  celebrate,
                                   autoCross,
                                   disabled,
                                   onTap,
@@ -250,7 +253,10 @@ export default function Board({
                             <Crown
                                 className={`h-[50%] w-[50%] drop-shadow-sm ${
                                     bad ? "text-red-600" : "text-neutral-900"
-                                }`}
+                                } ${celebrate ? "queen-pop" : ""}`}
+                                // Delay by the anti-diagonal, so the pop sweeps
+                                // across the board instead of firing at once.
+                                style={celebrate ? {animationDelay: `${(r + c) * 30}ms`} : undefined}
                             />
                         )}
                         {bad && (

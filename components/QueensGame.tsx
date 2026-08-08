@@ -447,6 +447,7 @@ export default function QueensGame() {
                         hintTargets={hintTargets}
                         hintAction={hint?.action ?? null}
                         hintLock={hintLock}
+                        celebrate={won}
                         autoCross={autoCross}
                         disabled={won}
                         onTap={tap}
@@ -454,8 +455,14 @@ export default function QueensGame() {
                     />
                     {won && (
                         <div
-                            className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-[var(--surface)]/85 backdrop-blur-[2px]">
-                            <span className="text-4xl">👑</span>
+                            // Held back so the wave of queens lands first. The panel
+                            // still fades in over the tail of it, which keeps the whole
+                            // celebration under a second.
+                            style={{animationDelay: "420ms"}}
+                            className="win-panel absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-lg bg-[var(--surface)]/85 backdrop-blur-[2px]">
+                            <span className="win-crown text-4xl" style={{animationDelay: "500ms"}}>
+                                👑
+                            </span>
                             <p className="text-xl font-bold">Solved in {formatTime(elapsed)}</p>
                             <p className="text-sm text-[var(--muted)]">
                                 {DIFFICULTY_LABEL[puzzle.difficulty]} · needed{" "}
