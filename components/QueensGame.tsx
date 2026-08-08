@@ -2,6 +2,7 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import Board from "./Board";
+import {RulesBody, RulesDialog} from "./Rules";
 import {
     DEFAULT_SIZE,
     DIFFICULTIES,
@@ -23,7 +24,9 @@ import {
     formatTime,
     fingerprint,
     loadProgress,
+    hasSeenRules,
     loadStats,
+    markRulesSeen,
     recordWin,
     saveProgress,
     type Stats,
@@ -42,6 +45,9 @@ export default function QueensGame() {
     const [hint, setHint] = useState<Hint | null>(null);
     const [autoCross, setAutoCross] = useState(true);
     const [stats, setStats] = useState<Stats | null>(null);
+    // Starts closed so the prerendered pass and the first hydration agree; the
+    // deferred effect below is what may open it.
+    const [showRules, setShowRules] = useState(false);
     const [busy, setBusy] = useState(true);
 
     const today = useMemo(() => dailySeed(), []);
@@ -108,6 +114,7 @@ export default function QueensGame() {
         // reads stay out of the server-rendered pass.
         const id = setTimeout(() => {
             setStats(loadStats());
+            if (!hasSeenRules()) setShowRules(true);
             install(
                 mode === "daily"
                     ? dailyPuzzle()
@@ -165,7 +172,7 @@ export default function QueensGame() {
         return () => document.removeEventListener("visibilitychange", sync);
     }, []);
 
-    const running = !!puzzle && !won && !busy && !hidden;
+    const running = !!puzzle && !won && !busy && !hidden && !showRules;
 
     const readElapsed = useCallback(
         () =>
@@ -339,6 +346,11 @@ export default function QueensGame() {
         setBusy(true);
         setDifficulty(d);
     };
+
+    const dismissRules = useCallback(() => {
+        setShowRules(false);
+        markRulesSeen();
+    }, []);
 
     const newPractice = () => {
         setBusy(true);
@@ -535,31 +547,21 @@ export default function QueensGame() {
             </label>
 
             <details className="text-sm text-[var(--muted)]">
-                <summary className="cursor-pointer font-medium">How it works</summary>
-                <div className="mt-2 space-y-2 leading-relaxed">
-                    <p>
-                        One queen per row, per column and per colour — and no two queens may
-                        touch, not even diagonally. Tap a cell to cycle empty → ✕ → 👑, or
-                        drag to sweep ✕ across a run of cells. Placing a queen crosses out
-                        its row, column, colour and touching cells for you; removing it puts
-                        them back, keeping any ✕ you placed yourself or that another queen
-                        still rules out.
-                    </p>
-                    <p>
-                        Boards are built backwards: a random valid solution first, then colour
-                        regions grown around it, then reshaped until that solution is the only
-                        one. Difficulty is measured, not assumed — a logical solver replays
-                        each board and the rating is the hardest technique it was forced to
-                        use.
-                    </p>
-                    {puzzle && (
-                        <p className="font-mono text-xs">
-                            seed {puzzle.seed} · tier {puzzle.tier} ({TIER_NAMES[puzzle.tier]}) ·
-                            effort {(puzzle.score / puzzle.n).toFixed(1)}
-                        </p>
-                    )}
+                <summary className="cursor-pointer font-medium">Rules</summary>
+                <div className="mt-2">
+                    <RulesBody/>
                 </div>
             </details>
+
+            {/* Diagnostics, not prose — kept out of the rules it used to sit inside. */}
+            {puzzle && (
+                <p className="font-mono text-xs text-[var(--muted)]">
+                    seed {puzzle.seed} · tier {puzzle.tier} ({TIER_NAMES[puzzle.tier]}) ·
+                    effort {(puzzle.score / puzzle.n).toFixed(1)}
+                </p>
+            )}
+
+            {showRules && <RulesDialog onClose={dismissRules}/>}
         </main>
     );
 }

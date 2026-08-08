@@ -68,6 +68,16 @@ export const saveProgress = (seed: string, p: Progress) =>
 
 export const loadStats = () => read<Stats>(`${PREFIX}:stats`, EMPTY_STATS);
 
+/**
+ * Whether the rules have been shown once already. Read from an effect, never
+ * during render — the page is prerendered at build time with no `window`, and
+ * `read` answers `false` there, so a render-time check would flash the dialog
+ * open on every hydration.
+ */
+export const hasSeenRules = () => read<boolean>(`${PREFIX}:seen-rules`, false);
+
+export const markRulesSeen = () => write(`${PREFIX}:seen-rules`, true);
+
 function yesterdayKey(today: string): string {
     const d = new Date(`${today}T12:00:00`);
     d.setDate(d.getDate() - 1);
