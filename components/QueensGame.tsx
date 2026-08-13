@@ -1,8 +1,10 @@
 "use client";
 
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {BestTimesTable} from "./BestTimes";
 import Board from "./Board";
 import {ConfirmDialog} from "./ConfirmDialog";
+import {LeaderboardPanel, NamePromptDialog} from "./Leaderboard";
 import {RulesBody, RulesDialog} from "./Rules";
 import {
     DEFAULT_SIZE,
@@ -25,11 +27,14 @@ import {
     formatTime,
     fingerprint,
     loadProgress,
+    getPlayerId,
+    getPlayerName,
     hasSeenRules,
     loadStats,
     markRulesSeen,
     recordWin,
     saveProgress,
+    setPlayerName,
     type Stats,
 } from "@/lib/storage";
 
@@ -73,6 +78,9 @@ export default function QueensGame() {
     const [busy, setBusy] = useState(true);
     // Which destructive action is pending a yes/no, or null for none.
     const [confirmAction, setConfirmAction] = useState<"clear" | "new" | null>(null);
+    const [showNamePrompt, setShowNamePrompt] = useState(false);
+    // Bumped after a submission lands, so the leaderboard panel refetches.
+    const [leaderboardRefresh, setLeaderboardRefresh] = useState(0);
 
     const today = useMemo(() => dailySeed(), []);
 
@@ -90,6 +98,9 @@ export default function QueensGame() {
     const elapsedRef = useRef(0);
     const segmentAt = useRef<number | null>(null);
     const recordedRef = useRef<string | null>(null);
+    // Set on a daily win with no stored name yet, read once the name prompt
+    // is answered so the submission carries the marks from the winning move.
+    const pendingSubmitRef = useRef<{elapsed: number; marks: Mark[]} | null>(null);
     // Read by the pointer handlers for the same reason as `marksRef` — and so the
     // handlers keep a stable identity instead of re-registering on every hint.
     const hintRef = useRef<Hint | null>(null);
@@ -246,6 +257,26 @@ export default function QueensGame() {
     }, [puzzle, marks, elapsed, won, busy, hintsUsed, hintAvailableAt]);
 
     // --- actions --------------------------------------------------------------
+    // Fire-and-forget: this is an offline-first PWA, and the leaderboard is a
+    // bonus on top of a game that already works without a network.
+    const submitScore = useCallback((name: string, elapsedMs: number, solvedMarks: Mark[]) => {
+        fetch("/api/leaderboard", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                date: dailySeed(),
+                playerId: getPlayerId(),
+                name,
+                elapsed: elapsedMs,
+                marks: solvedMarks,
+            }),
+        })
+            .then(() => setLeaderboardRefresh((n) => n + 1))
+            .catch(() => {
+                /* offline or unreachable — nothing to show for it, nothing lost */
+            });
+    }, []);
+
     // Recording the win belongs in the handler that caused it, not an effect.
     const recordIfWon = useCallback(
         (next: Mark[]) => {
@@ -253,10 +284,20 @@ export default function QueensGame() {
                 recordedRef.current = puzzle.seed;
                 // Read the clock, not the last tick — the winning tap lands
                 // somewhere inside the current interval.
-                setStats(recordWin(puzzle.difficulty, readElapsed(), mode === "daily" ? today : null));
+                const elapsedMs = readElapsed();
+                setStats(recordWin(puzzle.difficulty, elapsedMs, mode === "daily" ? today : null));
+
+                if (mode === "daily") {
+                    const name = getPlayerName();
+                    if (name) submitScore(name, elapsedMs, next);
+                    else {
+                        pendingSubmitRef.current = {elapsed: elapsedMs, marks: next};
+                        setShowNamePrompt(true);
+                    }
+                }
             }
         },
-        [puzzle, mode, today, readElapsed],
+        [puzzle, mode, today, readElapsed, submitScore],
     );
 
     /** empty → ✕ → 👑, the plain cycle a tap does when no hint is steering it. */
@@ -412,6 +453,19 @@ export default function QueensGame() {
         markRulesSeen();
     }, []);
 
+    const submitName = (name: string) => {
+        setPlayerName(name);
+        setShowNamePrompt(false);
+        const pending = pendingSubmitRef.current;
+        pendingSubmitRef.current = null;
+        if (pending) submitScore(name, pending.elapsed, pending.marks);
+    };
+
+    const skipNamePrompt = () => {
+        setShowNamePrompt(false);
+        pendingSubmitRef.current = null;
+    };
+
     const newPractice = () => {
         setBusy(true);
         setTimeout(
@@ -555,6 +609,8 @@ export default function QueensGame() {
                 </div>
             )}
 
+            {won && mode === "daily" && <LeaderboardPanel date={today} key={leaderboardRefresh} />}
+
             {hint && (
                 <div className="rounded-lg bg-sky-500/10 px-3 py-2.5 text-sm">
                     <div className="flex items-start gap-2">
@@ -636,6 +692,15 @@ export default function QueensGame() {
                 </div>
             </details>
 
+            {stats && (
+                <details className="text-sm text-[var(--muted)]">
+                    <summary className="cursor-pointer font-medium">Best times</summary>
+                    <div className="mt-2">
+                        <BestTimesTable best={stats.best}/>
+                    </div>
+                </details>
+            )}
+
             {/* Diagnostics, not prose — kept out of the rules it used to sit inside. */}
             {puzzle && (
                 <p className="font-mono text-xs text-[var(--muted)]">
@@ -658,6 +723,10 @@ export default function QueensGame() {
                     onConfirm={confirmPending}
                     onCancel={() => setConfirmAction(null)}
                 />
+            )}
+
+            {showNamePrompt && (
+                <NamePromptDialog onSubmit={submitName} onSkip={skipNamePrompt}/>
             )}
         </main>
     );

@@ -2,7 +2,7 @@
  * Puzzles are generated on-device, so once the shell is cached the whole game
  * works with no network at all.
  */
-const CACHE = "queens-v2";
+const CACHE = "queens-v3";
 const SHELL = ["/", "/manifest.webmanifest", "/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -23,7 +23,10 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
-  if (new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+  // The leaderboard is live data, never the shell — always hit the network.
+  if (url.pathname.startsWith("/api/")) return;
 
   // Navigations: try the network so updates land, fall back to the cached shell.
   //

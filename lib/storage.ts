@@ -23,10 +23,15 @@ export function fingerprint(puzzle: Puzzle): string {
     return hashString(shape).toString(36);
 }
 
+export interface BestTimes {
+    daily: Partial<Record<Difficulty, number>>;
+    practice: Partial<Record<Difficulty, number>>;
+}
+
 export interface Stats {
     played: number;
     won: number;
-    best: Partial<Record<Difficulty, number>>;
+    best: BestTimes;
     streak: number;
     lastDailyWon: string | null;
 }
@@ -34,10 +39,24 @@ export interface Stats {
 const EMPTY_STATS: Stats = {
     played: 0,
     won: 0,
-    best: {},
+    best: {daily: {}, practice: {}},
     streak: 0,
     lastDailyWon: null,
 };
+
+/**
+ * Before the daily/practice split, `best` held one number per difficulty
+ * regardless of mode. That old shape can't be told apart by mode after the
+ * fact, so it folds into `practice` — the more common bucket, and this is a
+ * soft personal-best number rather than data that needs to be exactly right.
+ */
+function migrateBest(raw: unknown): BestTimes {
+    if (raw && typeof raw === "object" && ("daily" in raw || "practice" in raw)) {
+        const b = raw as Partial<BestTimes>;
+        return {daily: b.daily ?? {}, practice: b.practice ?? {}};
+    }
+    return {daily: {}, practice: (raw as Partial<Record<Difficulty, number>>) ?? {}};
+}
 
 function read<T>(key: string, fallback: T): T {
     if (typeof window === "undefined") return fallback;
@@ -70,7 +89,10 @@ export function loadProgress(puzzle: Puzzle): Progress | null {
 export const saveProgress = (seed: string, p: Progress) =>
     write(`${PREFIX}:progress:${seed}`, p);
 
-export const loadStats = () => read<Stats>(`${PREFIX}:stats`, EMPTY_STATS);
+export function loadStats(): Stats {
+    const s = read<Stats>(`${PREFIX}:stats`, EMPTY_STATS);
+    return {...s, best: migrateBest(s.best)};
+}
 
 /**
  * Whether the rules have been shown once already. Read from an effect, never
@@ -81,6 +103,20 @@ export const loadStats = () => read<Stats>(`${PREFIX}:stats`, EMPTY_STATS);
 export const hasSeenRules = () => read<boolean>(`${PREFIX}:seen-rules`, false);
 
 export const markRulesSeen = () => write(`${PREFIX}:seen-rules`, true);
+
+/** Stable per-device id so a leaderboard resubmission updates the same entry
+ * instead of creating a duplicate. Created on first use. */
+export function getPlayerId(): string {
+    const existing = read<string | null>(`${PREFIX}:player-id`, null);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    write(`${PREFIX}:player-id`, id);
+    return id;
+}
+
+export const getPlayerName = () => read<string | null>(`${PREFIX}:player-name`, null);
+
+export const setPlayerName = (name: string) => write(`${PREFIX}:player-name`, name);
 
 function yesterdayKey(today: string): string {
     const d = new Date(`${today}T12:00:00`);
@@ -95,12 +131,19 @@ export function recordWin(
     dailyKey: string | null,
 ): Stats {
     const s = loadStats();
-    const best = s.best[difficulty];
+    const bucket = dailyKey ? "daily" : "practice";
+    const best = s.best[bucket][difficulty];
     const next: Stats = {
         ...s,
         played: s.played + 1,
         won: s.won + 1,
-        best: {...s.best, [difficulty]: best == null ? elapsed : Math.min(best, elapsed)},
+        best: {
+            ...s.best,
+            [bucket]: {
+                ...s.best[bucket],
+                [difficulty]: best == null ? elapsed : Math.min(best, elapsed),
+            },
+        },
     };
 
     if (dailyKey && s.lastDailyWon !== dailyKey) {
