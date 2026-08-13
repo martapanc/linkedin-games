@@ -34,6 +34,23 @@ import {
 
 type Mode = "daily" | "practice";
 
+/**
+ * Hints ramp up: the first couple are free, then each extra one locks the
+ * button for longer, so a spammed Hint stops being the easy route to a win.
+ */
+const FREE_HINTS = 2;
+const HINT_COOLDOWN_BASE_MS = 5000;
+const HINT_COOLDOWN_STEP_MS = 5000;
+const HINT_COOLDOWN_MAX_MS = 30000;
+
+function hintCooldownMs(hintsUsed: number): number {
+    if (hintsUsed <= FREE_HINTS) return 0;
+    return Math.min(
+        HINT_COOLDOWN_MAX_MS,
+        HINT_COOLDOWN_BASE_MS + HINT_COOLDOWN_STEP_MS * (hintsUsed - FREE_HINTS - 1),
+    );
+}
+
 export default function QueensGame() {
     const [mode, setMode] = useState<Mode>("daily");
     // Only the practice selector — the daily's rating comes from the puzzle.
@@ -43,6 +60,10 @@ export default function QueensGame() {
     const [history, setHistory] = useState<Mark[][]>([]);
     const [elapsed, setElapsed] = useState(0);
     const [hint, setHint] = useState<Hint | null>(null);
+    const [hintsUsed, setHintsUsed] = useState(0);
+    // Epoch ms the next hint unlocks at; 0 means "available now".
+    const [hintAvailableAt, setHintAvailableAt] = useState(0);
+    const [now, setNow] = useState(() => Date.now());
     const [autoCross, setAutoCross] = useState(true);
     const [stats, setStats] = useState<Stats | null>(null);
     // Starts closed so the prerendered pass and the first hydration agree; the
@@ -104,6 +125,8 @@ export default function QueensGame() {
             recordedRef.current = saved?.won ? p.seed : null;
             setHistory([]);
             setActiveHint(null);
+            setHintsUsed(saved?.hintsUsed ?? 0);
+            setHintAvailableAt(saved?.hintAvailableAt ?? 0);
             setBusy(false);
         },
         [setBoard, setActiveHint],
@@ -139,6 +162,17 @@ export default function QueensGame() {
         () => (puzzle && autoCross ? attackedCells(puzzle, marks) : new Set<number>()),
         [puzzle, marks, autoCross],
     );
+    // Keeps `now` fresh so the hint cooldown countdown (and its unlock) render
+    // live. A conditional interval that only ran while `hintAvailableAt` was in
+    // the future left `now` stuck at its mount-time value whenever a hint had no
+    // cooldown at all, showing a countdown that could never reach zero.
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 250);
+        return () => clearInterval(id);
+    }, []);
+    const hintWaitMs = Math.max(0, hintAvailableAt - now);
+    const hintCooling = hintWaitMs > 0;
+
     const queensPlaced = marks.filter((m) => m === 2).length;
     const hintEvidence = useMemo(() => new Set(hint?.evidence ?? []), [hint]);
     const hintTargets = useMemo(() => new Set(hint?.targets ?? []), [hint]);
@@ -198,8 +232,15 @@ export default function QueensGame() {
     // --- persistence ----------------------------------------------------------
     useEffect(() => {
         if (!puzzle || busy) return;
-        saveProgress(puzzle.seed, {marks, elapsed, won, fp: fingerprint(puzzle)});
-    }, [puzzle, marks, elapsed, won, busy]);
+        saveProgress(puzzle.seed, {
+            marks,
+            elapsed,
+            won,
+            fp: fingerprint(puzzle),
+            hintsUsed,
+            hintAvailableAt,
+        });
+    }, [puzzle, marks, elapsed, won, busy, hintsUsed, hintAvailableAt]);
 
     // --- actions --------------------------------------------------------------
     // Recording the win belongs in the handler that caused it, not an effect.
@@ -332,7 +373,11 @@ export default function QueensGame() {
     };
 
     const askHint = () => {
-        if (puzzle) setActiveHint(getHint(puzzle, marks));
+        if (!puzzle || hintCooling) return;
+        setActiveHint(getHint(puzzle, marks));
+        const used = hintsUsed + 1;
+        setHintsUsed(used);
+        setHintAvailableAt(Date.now() + hintCooldownMs(used));
     };
 
     const changeMode = (m: Mode) => {
@@ -529,10 +574,10 @@ export default function QueensGame() {
                 </button>
                 <button
                     onClick={askHint}
-                    disabled={won}
-                    className="rounded-lg bg-[var(--chip)] py-2.5 disabled:opacity-40"
+                    disabled={won || hintCooling}
+                    className="rounded-lg bg-[var(--chip)] py-2.5 tabular-nums disabled:opacity-40"
                 >
-                    Hint
+                    {hintCooling ? `Hint (${Math.ceil(hintWaitMs / 1000)}s)` : "Hint"}
                 </button>
                 <button
                     onClick={newPractice}

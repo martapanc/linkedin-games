@@ -7,9 +7,12 @@
 - deploy to e.g. Netlify
   - `sw.js` must stop caching `/api/**` before the leaderboard lands, and `CACHE`
     needs bumping to `queens-v3`
-- timer (e.g. 5 seconds, and increasing after a few tries) before new hint is available, to motivate player to try things
 
 ## Done
+
+- ~~timer before new hint is available~~ — first 2 hints per board are free; each
+  one after that locks the Hint button for longer (5s, 10s, 15s… capped at 30s),
+  tracked per board and surviving a reload
 
 - ~~Rules instead of "How it works"~~ — rules copy lives once in `components/Rules.tsx`,
   shown in a first-run dialog and an always-available disclosure; the generator/solver

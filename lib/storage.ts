@@ -8,6 +8,9 @@ export interface Progress {
     won: boolean;
     /** Identifies the exact board these marks belong to. */
     fp: string;
+    /** Hints taken on this board, and when the next one unlocks (epoch ms). */
+    hintsUsed: number;
+    hintAvailableAt: number;
 }
 
 /**
@@ -60,7 +63,8 @@ export function loadProgress(puzzle: Puzzle): Progress | null {
     const p = read<Progress | null>(`${PREFIX}:progress:${puzzle.seed}`, null);
     if (!p || p.fp !== fingerprint(puzzle)) return null;
     if (!Array.isArray(p.marks) || p.marks.length !== puzzle.n * puzzle.n) return null;
-    return p;
+    // Records saved before the hint cooldown shipped won't carry these.
+    return {...p, hintsUsed: p.hintsUsed ?? 0, hintAvailableAt: p.hintAvailableAt ?? 0};
 }
 
 export const saveProgress = (seed: string, p: Progress) =>
