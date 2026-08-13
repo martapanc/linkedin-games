@@ -2,6 +2,7 @@
 
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
 import Board from "./Board";
+import {ConfirmDialog} from "./ConfirmDialog";
 import {RulesBody, RulesDialog} from "./Rules";
 import {
     DEFAULT_SIZE,
@@ -70,6 +71,8 @@ export default function QueensGame() {
     // deferred effect below is what may open it.
     const [showRules, setShowRules] = useState(false);
     const [busy, setBusy] = useState(true);
+    // Which destructive action is pending a yes/no, or null for none.
+    const [confirmAction, setConfirmAction] = useState<"clear" | "new" | null>(null);
 
     const today = useMemo(() => dailySeed(), []);
 
@@ -372,6 +375,18 @@ export default function QueensGame() {
         setBoard(new Array<Mark>(puzzle.n * puzzle.n).fill(0));
     };
 
+    // Marks are the visible cost of Clear or New — an untouched board has
+    // nothing to lose, so only ask when there is actually something at stake.
+    const hasProgress = marks.some((m) => m !== 0);
+
+    const requestClear = () => {
+        if (!hasProgress) {
+            clear();
+            return;
+        }
+        setConfirmAction("clear");
+    };
+
     const askHint = () => {
         if (!puzzle || hintCooling) return;
         setActiveHint(getHint(puzzle, marks));
@@ -403,6 +418,22 @@ export default function QueensGame() {
             () => install(practicePuzzle(difficulty, DEFAULT_SIZE[difficulty]), false),
             16,
         );
+    };
+
+    // Only the toolbar's "New" swaps out a board still in progress — the win
+    // panel's "Next puzzle" replaces one already solved, so it skips this.
+    const requestNewPractice = () => {
+        if (!hasProgress) {
+            newPractice();
+            return;
+        }
+        setConfirmAction("new");
+    };
+
+    const confirmPending = () => {
+        if (confirmAction === "clear") clear();
+        if (confirmAction === "new") newPractice();
+        setConfirmAction(null);
     };
 
     // --- render ---------------------------------------------------------------
@@ -566,7 +597,7 @@ export default function QueensGame() {
                     Undo
                 </button>
                 <button
-                    onClick={clear}
+                    onClick={requestClear}
                     disabled={won}
                     className="rounded-lg bg-[var(--chip)] py-2.5 disabled:opacity-40"
                 >
@@ -580,7 +611,7 @@ export default function QueensGame() {
                     {hintCooling ? `Hint (${Math.ceil(hintWaitMs / 1000)}s)` : "Hint"}
                 </button>
                 <button
-                    onClick={newPractice}
+                    onClick={requestNewPractice}
                     disabled={mode === "daily"}
                     className="rounded-lg bg-[var(--chip)] py-2.5 disabled:opacity-40"
                 >
@@ -614,6 +645,20 @@ export default function QueensGame() {
             )}
 
             {showRules && <RulesDialog onClose={dismissRules}/>}
+
+            {confirmAction && (
+                <ConfirmDialog
+                    title={confirmAction === "clear" ? "Clear the board?" : "Start a new board?"}
+                    body={
+                        confirmAction === "clear"
+                            ? "Every mark you've placed will be wiped."
+                            : "This board's progress will be lost for a fresh one."
+                    }
+                    confirmLabel={confirmAction === "clear" ? "Clear" : "New board"}
+                    onConfirm={confirmPending}
+                    onCancel={() => setConfirmAction(null)}
+                />
+            )}
         </main>
     );
 }
