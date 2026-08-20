@@ -2,10 +2,6 @@
 
 ### Tango
 
-- hint engine — the rule ladder already reports why each rule fired
-  (`Deduction.title` / `.text` / `.evidence` / `.fills` in
-  `apps/tango/lib/tango/solver.ts`), so this is the UI and the cooldown, not
-  the logic
 - daily leaderboard — Queens' `app/api/leaderboard/route.ts` re-derives the
   day's board and verifies the marks before writing; Tango can do the same with
   `dailyPuzzle()` + `isSolved()`, and the sanitising/upsert rules are already
@@ -30,6 +26,21 @@
 
 ## Done
 
+- ~~Tango hint engine~~ — `getHint` (`apps/tango/lib/tango/game.ts`) checks for
+  a mistake first (a filled square that disagrees with the true solution),
+  then leans on the same rule ladder `analyze` uses to grade the puzzle via
+  `nextDeduction`, which already carries the technique name, explanation, and
+  evidence/fill squares per step — a hint never explains a step the generator
+  wouldn't. Board locks to the hint's targets, dims everything else, and shows
+  a pulsing ghost sun/moon on each empty target; tapping toggles it between
+  empty and the prescribed symbol rather than cycling through the third state,
+  and the hint auto-dismisses once every target matches (or, for a mistake
+  hint, once that one square changes at all). The free-hints-then-escalating-
+  cooldown schedule (`FREE_HINTS`, `hintCooldownMs`) moved into
+  `packages/core/src/hints.ts` so Queens and Tango share one schedule instead
+  of two copies of the same constants; Queens' behaviour is unchanged.
+  Verified live: lock/toggle/dismiss, mistake detection, live cooldown
+  countdown and escalation, and persistence to localStorage.
 - ~~Netlify, one site per game~~ — `tango-unlimited.netlify.app` created and
   Git-connected; both sites keep the repository root as their **base**
   directory, so pnpm installs the whole workspace and the `@games/core` links

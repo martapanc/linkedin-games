@@ -44,6 +44,14 @@ export function RulesBody() {
                         can&apos;t be changed.
                     </span>
                 </li>
+                <li className="flex gap-2">
+                    <span aria-hidden="true">💡</span>
+                    <span>
+                        <b className="font-semibold text-[var(--foreground)]">Hint</b> explains
+                        the next forced step rather than giving it away, and holds the board to
+                        that step until you have done it — or dismiss it.
+                    </span>
+                </li>
             </ul>
             <p>
                 Every board has exactly one answer, and you never have to guess to find it —

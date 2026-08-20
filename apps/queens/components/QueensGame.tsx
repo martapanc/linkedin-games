@@ -1,6 +1,7 @@
 "use client";
 
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {hintCooldownMs} from "@games/core";
 import {BestTimesTable, ConfirmDialog} from "@games/core/ui";
 import Board from "./Board";
 import {LeaderboardPanel, NamePromptDialog} from "./Leaderboard";
@@ -38,23 +39,6 @@ import {
 } from "@/lib/storage";
 
 type Mode = "daily" | "practice";
-
-/**
- * Hints ramp up: the first couple are free, then each extra one locks the
- * button for longer, so a spammed Hint stops being the easy route to a win.
- */
-const FREE_HINTS = 2;
-const HINT_COOLDOWN_BASE_MS = 5000;
-const HINT_COOLDOWN_STEP_MS = 5000;
-const HINT_COOLDOWN_MAX_MS = 30000;
-
-function hintCooldownMs(hintsUsed: number): number {
-    if (hintsUsed <= FREE_HINTS) return 0;
-    return Math.min(
-        HINT_COOLDOWN_MAX_MS,
-        HINT_COOLDOWN_BASE_MS + HINT_COOLDOWN_STEP_MS * (hintsUsed - FREE_HINTS - 1),
-    );
-}
 
 export default function QueensGame() {
     const [mode, setMode] = useState<Mode>("daily");

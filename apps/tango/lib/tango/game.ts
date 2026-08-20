@@ -1,5 +1,5 @@
-import {buildCtx, isComplete, type Ctx} from "./solver";
-import {EMPTY, MOON, SUN, type Cell, type Puzzle} from "./types";
+import {buildCtx, isComplete, nextDeduction, type Ctx, type Fill} from "./solver";
+import {EMPTY, MOON, SUN, type Cell, type Puzzle, type Sym} from "./types";
 
 /** The board's geometry, cached per puzzle — every helper here needs it. */
 const ctxCache = new WeakMap<Puzzle, Ctx>();
@@ -76,3 +76,78 @@ export const startingCells = (puzzle: Puzzle): Cell[] => puzzle.givens.slice();
 export const isGiven = (puzzle: Puzzle, i: number) => puzzle.givens[i] !== EMPTY;
 
 export {isComplete};
+
+export interface Hint {
+    /** Badge label: the technique, or the kind of mistake. */
+    title: string;
+    text: string;
+    /** Squares that make the argument work. */
+    evidence: number[];
+    /** Squares the argument resolves. */
+    targets: number[];
+    /**
+     * What to fill each target with. `null` for a mistake hint — it points at
+     * a square you got wrong without prescribing what belongs there, since
+     * Tango (unlike Queens) has no separate "deliberately wrong" mark: the
+     * fix is just the other symbol, and the player has to see that for
+     * themselves rather than be handed it.
+     */
+    fills: Fill[] | null;
+}
+
+/**
+ * Explain the next step rather than give it away.
+ *
+ * Mistakes come first: `nextDeduction` reasons from the cells on the board, so
+ * a single wrong one would let it "prove" something false. Once the board is
+ * known-consistent, the rule ladder supplies the next forced fill together
+ * with the technique that justifies it — the same ladder `analyze` uses to
+ * grade the puzzle, so a hint never explains a step the generator wouldn't.
+ */
+export function getHint(puzzle: Puzzle, cells: Cell[]): Hint {
+    const {solution} = puzzle;
+
+    for (let i = 0; i < cells.length; i++) {
+        if (cells[i] !== EMPTY && cells[i] !== solution[i]) {
+            return {
+                title: "Mistake",
+                text: "This square can't be right — anything you work out from it will be off too.",
+                evidence: [],
+                targets: [i],
+                fills: null,
+            };
+        }
+    }
+
+    const ctx = ctxOf(puzzle);
+    const d = nextDeduction(ctx, Int8Array.from(cells));
+    if (d) {
+        return {
+            title: d.title,
+            text: d.text,
+            evidence: d.evidence,
+            targets: d.fills.map((f) => f.i),
+            fills: d.fills,
+        };
+    }
+
+    const remaining = cells.map((_, i) => i).filter((i) => cells[i] === EMPTY);
+    if (!remaining.length) {
+        return {
+            title: "All set",
+            text: "Nothing left to work out — you're done.",
+            evidence: [],
+            targets: [],
+            fills: null,
+        };
+    }
+    // Every technique the solver knows is exhausted; fall back to showing one.
+    const i = remaining[0];
+    return {
+        title: "Square",
+        text: "No single step forces the next move — but this one is set.",
+        evidence: [],
+        targets: [i],
+        fills: [{i, v: solution[i] as Sym}],
+    };
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import {MOON, SUN, type Cell, type Puzzle} from "@/lib/tango";
+import {MOON, SUN, type Cell, type Puzzle, type Sym} from "@/lib/tango";
 
 /** Rays at 45° steps, all the same length — the shape has to read at 20px. */
 function Sun({className, style}: {className?: string; style?: React.CSSProperties}) {
@@ -38,6 +38,15 @@ interface BoardProps {
     conflicts: Set<number>;
     /** Indices into `puzzle.links` of signs the board currently contradicts. */
     broken: Set<number>;
+    /** Squares backing the current hint's argument. */
+    hintEvidence: Set<number>;
+    /** Squares the current hint resolves. */
+    hintTargets: Set<number>;
+    /** What the hint says goes in each target. A mistake hint's target carries
+     * no entry — it has nothing to prescribe, only a square to fix. */
+    hintFills: Map<number, Sym>;
+    /** While set, only `hintTargets` accept input — everything else is inert. */
+    hintLock: boolean;
     /** Solved — send a wave of pops across the board. */
     celebrate?: boolean;
     disabled?: boolean;
@@ -52,11 +61,18 @@ export default function Board({
     cells,
     conflicts,
     broken,
+    hintEvidence,
+    hintTargets,
+    hintFills,
+    hintLock,
     celebrate,
     disabled,
     onTap,
 }: BoardProps) {
     const {n, givens, links} = puzzle;
+    // Whether *anything* is hinting right now — drives the dim wash on cells
+    // the current hint has nothing to say about.
+    const hinting = hintEvidence.size > 0 || hintTargets.size > 0;
 
     return (
         <div className="relative">
@@ -82,6 +98,13 @@ export default function Board({
                     const c = i % n;
                     const given = givens[i] !== 0;
                     const bad = conflicts.has(i);
+                    const isTarget = hintTargets.has(i);
+                    // A given can never be a hint target (the solver only ever fills
+                    // an unset cell), so this alone is enough to keep givens locked
+                    // both with and without a hint active.
+                    const locked = given || (hintLock && !isTarget);
+                    const faded = hinting && !isTarget && !hintEvidence.has(i);
+                    const want = hintFills.get(i);
                     const wash =
                         cell === SUN
                             ? "var(--sun-wash)"
@@ -101,11 +124,11 @@ export default function Board({
                             aria-label={`Row ${r + 1}, column ${c + 1}, ${LABEL[cell]}${
                                 given ? ", fixed" : ""
                             }`}
-                            aria-disabled={given || undefined}
-                            disabled={disabled || given}
+                            aria-disabled={locked || undefined}
+                            disabled={disabled || locked}
                             onClick={() => onTap(i)}
                             className={`relative flex aspect-square items-center justify-center ${
-                                given && !disabled ? "cursor-default" : ""
+                                locked && !disabled ? "cursor-default" : ""
                             }`}
                             style={{backgroundColor: wash}}
                         >
@@ -136,6 +159,25 @@ export default function Board({
                                 <span
                                     className="pointer-events-none absolute left-0 top-0 border-[6px] border-transparent border-l-black/25 border-t-black/25"
                                 />
+                            )}
+                            {faded && (
+                                <span className="pointer-events-none absolute inset-0 bg-[var(--background)]/70"/>
+                            )}
+                            {isTarget && (
+                                <>
+                                    <span
+                                        className="pointer-events-none absolute inset-0 ring-[3px] ring-inset ring-sky-600"
+                                    />
+                                    {/* No entry in `hintFills` means a mistake hint — it
+                                        faults this square without prescribing a fix, so
+                                        it gets the ring on its own. */}
+                                    {cell === 0 && want === SUN && (
+                                        <Sun className="pointer-events-none absolute h-[45%] w-[45%] animate-pulse text-sky-700/55"/>
+                                    )}
+                                    {cell === 0 && want === MOON && (
+                                        <Moon className="pointer-events-none absolute h-[42%] w-[42%] animate-pulse text-sky-700/55"/>
+                                    )}
+                                </>
                             )}
                         </button>
                     );

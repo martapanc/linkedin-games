@@ -1,6 +1,7 @@
 "use client";
 
 import {useCallback, useEffect, useMemo, useRef, useState} from "react";
+import {hintCooldownMs} from "@games/core";
 import {BestTimesTable, ConfirmDialog} from "@games/core/ui";
 import Board from "./Board";
 import {RulesBody, RulesDialog} from "./Rules";
@@ -13,11 +14,13 @@ import {
     dailyPuzzle,
     dailySeed,
     findConflicts,
+    getHint,
     isSolved,
     practicePuzzle,
     startingCells,
     type Cell,
     type Difficulty,
+    type Hint,
     type Puzzle,
 } from "@/lib/tango";
 import {
@@ -51,6 +54,11 @@ export default function TangoGame() {
     const [cells, setCells] = useState<Cell[]>([]);
     const [history, setHistory] = useState<Cell[][]>([]);
     const [elapsed, setElapsed] = useState(0);
+    const [hint, setHint] = useState<Hint | null>(null);
+    const [hintsUsed, setHintsUsed] = useState(0);
+    // Epoch ms the next hint unlocks at; 0 means "available now".
+    const [hintAvailableAt, setHintAvailableAt] = useState(0);
+    const [now, setNow] = useState(() => Date.now());
     const [stats, setStats] = useState<Stats | null>(null);
     // Starts closed so the prerendered pass and the first hydration agree; the
     // deferred effect below is what may open it.
@@ -86,6 +94,15 @@ export default function TangoGame() {
         setCells(next);
     }, []);
 
+    // Read by the tap handler for the same reason as `cellsRef` — and so the
+    // handler keeps a stable identity instead of re-registering on every hint.
+    const hintRef = useRef<Hint | null>(null);
+
+    const setActiveHint = useCallback((h: Hint | null) => {
+        hintRef.current = h;
+        setHint(h);
+    }, []);
+
     // The cell mid-cycle, and the timer that will release it — see
     // `CONFLICT_GRACE_MS`. A ref because the timeout callback needs to clear
     // itself without becoming a dependency of every effect that touches it.
@@ -106,6 +123,9 @@ export default function TangoGame() {
         setPuzzle(p);
         setBoard(saved?.marks ?? startingCells(p));
         releaseSettling();
+        setActiveHint(null);
+        setHintsUsed(saved?.hintsUsed ?? 0);
+        setHintAvailableAt(saved?.hintAvailableAt ?? 0);
         // Clear the in-flight segment too, or the new board inherits the time
         // since the old one's last tick.
         segmentAt.current = null;
@@ -114,7 +134,7 @@ export default function TangoGame() {
         recordedRef.current = saved?.won ? p.seed : null;
         setHistory([]);
         setBusy(false);
-    }, [setBoard, releaseSettling]);
+    }, [setBoard, releaseSettling, setActiveHint]);
 
     useEffect(() => {
         // Deferred so the "generating" state can paint, and so the localStorage
@@ -151,6 +171,34 @@ export default function TangoGame() {
         () => (puzzle ? brokenLinks(puzzle, gracedCells) : new Set<number>()),
         [puzzle, gracedCells],
     );
+    // Keeps `now` fresh so the hint cooldown countdown (and its unlock) render
+    // live. A conditional interval that only ran while `hintAvailableAt` was in
+    // the future left `now` stuck at its mount-time value whenever a hint had no
+    // cooldown at all, showing a countdown that could never reach zero.
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 250);
+        return () => clearInterval(id);
+    }, []);
+    const hintWaitMs = Math.max(0, hintAvailableAt - now);
+    const hintCooling = hintWaitMs > 0;
+
+    const hintEvidence = useMemo(() => new Set(hint?.evidence ?? []), [hint]);
+    const hintTargets = useMemo(() => new Set(hint?.targets ?? []), [hint]);
+    const hintFills = useMemo(
+        () => new Map((hint?.fills ?? []).map((f) => [f.i, f.v])),
+        [hint],
+    );
+    // How much of the hint is still outstanding — the whole point of holding the
+    // lock is that this number is visible instead of remembered. A mistake hint
+    // prescribes nothing, so it has nothing to count.
+    const hintLeft = useMemo(() => {
+        if (!hint?.fills) return 0;
+        return hint.fills.filter((f) => cells[f.i] !== f.v).length;
+    }, [hint, cells]);
+    // A hint with no targets (the "All set" case) must not lock anything, or the
+    // board would freeze with nothing that could possibly release it.
+    const hintLock = !!hint && hint.targets.length > 0;
+
     const filled = cells.filter((c) => c !== 0).length;
     // A finished board is fully described by its cells — no separate win flag.
     const won = useMemo(
@@ -202,11 +250,10 @@ export default function TangoGame() {
             elapsed,
             won,
             fp: fingerprint(puzzle),
-            // Hints haven't shipped for Tango yet; the shared shape carries them.
-            hintsUsed: 0,
-            hintAvailableAt: 0,
+            hintsUsed,
+            hintAvailableAt,
         });
-    }, [puzzle, cells, elapsed, won, busy]);
+    }, [puzzle, cells, elapsed, won, busy, hintsUsed, hintAvailableAt]);
 
     // --- actions --------------------------------------------------------------
     // Recording the win belongs in the handler that caused it, not an effect.
@@ -228,6 +275,41 @@ export default function TangoGame() {
         (index: number) => {
             if (!puzzle || won || puzzle.givens[index] !== 0) return;
             const prev = cellsRef.current;
+            const active = hintRef.current;
+
+            // While a hint is up the board is locked to that hint's squares. A
+            // multi-square hint used to vanish on the first tap, leaving the rest
+            // to be remembered from a message no longer on screen. Dismiss is the
+            // way back to free play.
+            if (active) {
+                if (!active.targets.includes(index)) return;
+
+                if (!active.fills) {
+                    // A mistake hint prescribes nothing — it points at a square
+                    // you got wrong. So the cell cycles normally, which is also
+                    // the fix.
+                    const next = prev.slice();
+                    next[index] = ((prev[index] + 1) % 3) as Cell;
+                    setHistory((h) => [...h.slice(-200), prev]);
+                    setBoard(next);
+                    setActiveHint(null);
+                    recordIfWon(next);
+                    return;
+                }
+
+                // Toggle, not cycle: the hint asks for one specific symbol, so a
+                // mis-tap needs an escape that isn't "some third mark".
+                const want = active.fills.find((f) => f.i === index)!.v;
+                const next = prev.slice();
+                next[index] = (prev[index] === want ? 0 : want) as Cell;
+
+                setHistory((h) => [...h.slice(-200), prev]);
+                setBoard(next);
+                if (active.fills.every((f) => next[f.i] === f.v)) setActiveHint(null);
+                recordIfWon(next);
+                return;
+            }
+
             const next = prev.slice();
             next[index] = ((prev[index] + 1) % 3) as Cell;
             setHistory((h) => [...h.slice(-200), prev]);
@@ -241,12 +323,13 @@ export default function TangoGame() {
             setSettling(index);
             settleTimer.current = setTimeout(() => setSettling(null), CONFLICT_GRACE_MS);
         },
-        [puzzle, won, setBoard, recordIfWon],
+        [puzzle, won, setBoard, setActiveHint, recordIfWon],
     );
 
     const undo = () => {
         if (!history.length) return;
         releaseSettling();
+        setActiveHint(null);
         setBoard(history[history.length - 1]);
         setHistory(history.slice(0, -1));
     };
@@ -256,6 +339,7 @@ export default function TangoGame() {
     const clear = () => {
         if (!puzzle) return;
         releaseSettling();
+        setActiveHint(null);
         setHistory((h) => [...h.slice(-200), cells]);
         setBoard(startingCells(puzzle));
     };
@@ -270,6 +354,14 @@ export default function TangoGame() {
             return;
         }
         setConfirmAction("clear");
+    };
+
+    const askHint = () => {
+        if (!puzzle || hintCooling) return;
+        setActiveHint(getHint(puzzle, cellsRef.current));
+        const used = hintsUsed + 1;
+        setHintsUsed(used);
+        setHintAvailableAt(Date.now() + hintCooldownMs(used));
     };
 
     const changeMode = (m: Mode) => {
@@ -391,6 +483,10 @@ export default function TangoGame() {
                         cells={cells}
                         conflicts={conflicts}
                         broken={broken}
+                        hintEvidence={hintEvidence}
+                        hintTargets={hintTargets}
+                        hintFills={hintFills}
+                        hintLock={hintLock}
                         celebrate={won}
                         disabled={won}
                         onTap={tap}
@@ -422,7 +518,37 @@ export default function TangoGame() {
                 </div>
             )}
 
-            <div className="grid grid-cols-3 gap-2 text-sm font-medium">
+            {hint && (
+                <div className="rounded-lg bg-sky-500/10 px-3 py-2.5 text-sm">
+                    <div className="flex items-start gap-2">
+                        <p className="flex-1">
+                            <span className="mr-2 rounded bg-sky-600 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
+                                {hint.title}
+                            </span>
+                            <span className="text-sky-800 dark:text-sky-200">{hint.text}</span>
+                        </p>
+                        <button
+                            onClick={() => setActiveHint(null)}
+                            className="shrink-0 rounded-md bg-sky-600/15 px-2 py-1 text-xs font-semibold text-sky-800 dark:text-sky-200"
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                    <p className="mt-1.5 text-xs text-sky-700/80 dark:text-sky-300/80">
+                        {!hint.fills
+                            ? hintLock
+                                ? "Change that square to carry on, or dismiss."
+                                : "Nothing to do here."
+                            : hintLeft > 0
+                                ? `${hintLeft} square${hintLeft > 1 ? "s" : ""} left — the rest of the board is locked until you fill ${
+                                    hintLeft > 1 ? "them" : "it"
+                                } in, or dismiss.`
+                                : "Done — unlocking."}
+                    </p>
+                </div>
+            )}
+
+            <div className="grid grid-cols-4 gap-2 text-sm font-medium">
                 <button
                     onClick={undo}
                     disabled={!history.length || won}
@@ -436,6 +562,13 @@ export default function TangoGame() {
                     className="rounded-lg bg-[var(--chip)] py-2.5 disabled:opacity-40"
                 >
                     Clear
+                </button>
+                <button
+                    onClick={askHint}
+                    disabled={won || hintCooling}
+                    className="rounded-lg bg-[var(--chip)] py-2.5 tabular-nums disabled:opacity-40"
+                >
+                    {hintCooling ? `Hint (${Math.ceil(hintWaitMs / 1000)}s)` : "Hint"}
                 </button>
                 <button
                     onClick={requestNewPractice}
