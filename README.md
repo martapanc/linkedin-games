@@ -35,9 +35,15 @@ packages/core/     difficulty ladder, RNG, storage, leaderboard rules, shared UI
 
 ## Deploying
 
-Each app owns a `netlify.toml`, and each Netlify site sets its **base
-directory** to that app's folder — that pairing is what makes the two sites
-independent while sharing one repo and one lockfile. A push touching only
-`apps/tango` still rebuilds both sites unless you give each one an [ignore
-command](https://docs.netlify.com/configure-builds/ignore-builds/); that is the
-one thing this layout does not give you for free.
+Each app owns a `netlify.toml`, and each Netlify site points its **package
+directory** at that app while leaving its **base directory** at the repository
+root. That split is what makes a pnpm workspace work: install runs at the root,
+where the lockfile and the workspace links live, and only the build is scoped to
+one app.
+
+The consequence worth remembering is that **paths inside `netlify.toml` are
+relative to the base directory** — the repo root — and not to the file itself.
+Hence `publish = "apps/tango/.next"` rather than `".next"`.
+
+Each app's `[build] ignore` skips its site when a push didn't touch that app,
+`packages/`, or the lockfile, so the two games really do deploy on their own.

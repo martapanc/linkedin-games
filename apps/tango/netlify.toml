@@ -1,9 +1,21 @@
-# Read by the `tango-unlimited` site, whose base directory is `apps/tango`.
-# Sibling games each own a netlify.toml of their own, so they deploy — and roll
-# back — independently of this one.
+# Read by the `tango-unlimited` site, whose **package directory** is
+# `apps/tango` while its base directory stays the repository root. That is
+# Netlify's recommended shape for a pnpm workspace: install runs at the root,
+# where the lockfile and the workspace links live, and only the build is scoped
+# to this app. Sibling games own a netlify.toml of their own, so they deploy —
+# and roll back — independently of this one.
+#
+# Paths below are relative to the *base* directory, not to this file.
 [build]
-  command = "pnpm build"
-  publish = ".next"
+  command = "pnpm --filter tango-pwa build"
+  publish = "apps/tango/.next"
+
+  # Skip the build when this push didn't touch anything this app is made of.
+  # `git diff --quiet` exits 0 on no change, which is exactly Netlify's "ignore"
+  # signal, and non-zero on change *or* on a bad ref — so the first build after
+  # this lands, when there is no cached commit yet, correctly builds rather than
+  # silently skipping.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- apps/tango packages pnpm-lock.yaml pnpm-workspace.yaml"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
