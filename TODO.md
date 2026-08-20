@@ -18,11 +18,6 @@
 
 ### Both
 
-- point the two Netlify sites at their new base directories (`apps/queens`,
-  `apps/tango`) — **queens-unlimited still targets the repo root and will fail
-  its next deploy until this is done** — and create the `tango-unlimited` site
-- a push touching one app rebuilds both sites; each needs an
-  [ignore command](https://docs.netlify.com/configure-builds/ignore-builds/)
 - custom domains — still on the default `*.netlify.app`, not e.g.
   `queens.martacodes.it`
 
@@ -35,6 +30,15 @@
 
 ## Done
 
+- ~~Netlify, one site per game~~ — `tango-unlimited.netlify.app` created and
+  Git-connected; both sites keep the repository root as their **base**
+  directory, so pnpm installs the whole workspace and the `@games/core` links
+  resolve, and scope only the build via Netlify's **package** directory
+  (`apps/queens`, `apps/tango`). Paths inside `netlify.toml` resolve against the
+  base directory rather than the file, so `publish` spells out
+  `apps/<game>/.next`. Each app's `[build] ignore` skips its site when a push
+  didn't touch that app, `packages/`, or the lockfile. Both verified live:
+  Queens serves its board and `/api/leaderboard` still answers 200 from Blobs.
 - ~~Tango, first pass~~ — `apps/tango`, deployable on its own. Seeded generator
   that strips a full clue set to minimal and relaxes it back to the target
   rating; a 4-tier rule ladder that grades boards and proves every one is
