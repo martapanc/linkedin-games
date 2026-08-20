@@ -3,8 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "queens": "pnpm --filter queens-pwa",
-    "tango": "pnpm --filter tango-pwa",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint"
   },
