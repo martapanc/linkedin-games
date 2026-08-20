@@ -1,0 +1,96 @@
+/*
+ * The house style, shared by every game in the repo: palette tokens, page
+ * chrome, and the win celebration's panel. Anything specific to one board —
+ * its colours, its pieces, its own animations — stays in that app's
+ * `globals.css`.
+ *
+ * Import this *after* `@import "tailwindcss"`, and pair it with an
+ * `@source` pointing at `@games/core`'s sources so Tailwind sees the class
+ * names used by the shared components (it skips `node_modules`, which is
+ * where a workspace link lands).
+ */
+
+:root {
+    --background: #f4f2ee;
+    --surface: #ffffff;
+    --foreground: #1b1b1b;
+    --muted: #6b6b6b;
+    --chip: #e7e4de;
+    --accent: #0a66c2;
+    --edge-strong: #2c2c2c;
+    --edge-weak: rgba(0, 0, 0, 0.22);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --background: #14161a;
+        --surface: #1d2026;
+        --foreground: #ececec;
+        --muted: #9aa0a8;
+        --chip: #282c34;
+        --accent: #4a9eff;
+        --edge-strong: #05070a;
+        --edge-weak: rgba(0, 0, 0, 0.35);
+    }
+}
+
+html {
+    /* Keep the board reachable when iOS shows its toolbars. */
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior-y: contain;
+}
+
+button {
+    -webkit-tap-highlight-color: transparent;
+}
+
+/* The win panel and its emblem — the board's own celebration leads, this lands after. */
+@keyframes win-panel-in {
+    from {
+        opacity: 0;
+        transform: scale(0.94);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes win-crown-in {
+    0% {
+        opacity: 0;
+        transform: translateY(6px) scale(0.6);
+    }
+    60% {
+        transform: translateY(0) scale(1.15);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.win-panel {
+    animation: win-panel-in 260ms ease-out both;
+}
+
+.win-crown {
+    animation: win-crown-in 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/*
+ * Reduced motion keeps the panel — it carries the result, so it must still
+ * appear — but drops every transform.
+ */
+@media (prefers-reduced-motion: reduce) {
+    .win-panel,
+    .win-crown {
+        animation: win-panel-in 1ms linear both;
+    }
+}

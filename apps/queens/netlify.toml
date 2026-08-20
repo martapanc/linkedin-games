@@ -1,0 +1,9 @@
+# Read by the `queens-unlimited` site, whose base directory is `apps/queens`.
+# Sibling games each own a netlify.toml of their own, so they deploy — and roll
+# back — independently of this one.
+[build]
+  command = "pnpm build"
+  publish = ".next"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
