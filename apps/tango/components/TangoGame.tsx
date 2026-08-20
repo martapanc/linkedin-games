@@ -34,6 +34,15 @@ import {
 
 type Mode = "daily" | "practice";
 
+/**
+ * Placing a moon is two taps (empty → sun → moon), so the cell spends a frame
+ * as a sun on the way there. Real Tango doesn't flag a conflict born from that
+ * frame — three-in-a-row briefly forming mid-cycle isn't a mistake, it's the
+ * gesture in progress — so the cell you just tapped gets a grace window before
+ * it can count against a rule, giving the second tap time to land first.
+ */
+const CONFLICT_GRACE_MS = 1000;
+
 export default function TangoGame() {
     const [mode, setMode] = useState<Mode>("daily");
     // Only the practice selector — the daily's rating comes from the puzzle.
@@ -77,11 +86,26 @@ export default function TangoGame() {
         setCells(next);
     }, []);
 
+    // The cell mid-cycle, and the timer that will release it — see
+    // `CONFLICT_GRACE_MS`. A ref because the timeout callback needs to clear
+    // itself without becoming a dependency of every effect that touches it.
+    const [settling, setSettling] = useState<number | null>(null);
+    const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const releaseSettling = useCallback(() => {
+        if (settleTimer.current) clearTimeout(settleTimer.current);
+        settleTimer.current = null;
+        setSettling(null);
+    }, []);
+
+    useEffect(() => releaseSettling, [releaseSettling]);
+
     // --- puzzle loading -------------------------------------------------------
     const install = useCallback((p: Puzzle, restore = true) => {
         const saved = restore ? loadProgress(p) : null;
         setPuzzle(p);
         setBoard(saved?.marks ?? startingCells(p));
+        releaseSettling();
         // Clear the in-flight segment too, or the new board inherits the time
         // since the old one's last tick.
         segmentAt.current = null;
@@ -90,7 +114,7 @@ export default function TangoGame() {
         recordedRef.current = saved?.won ? p.seed : null;
         setHistory([]);
         setBusy(false);
-    }, [setBoard]);
+    }, [setBoard, releaseSettling]);
 
     useEffect(() => {
         // Deferred so the "generating" state can paint, and so the localStorage
@@ -111,13 +135,21 @@ export default function TangoGame() {
     }, [mode, mode === "practice" ? difficulty : null, install]);
 
     // --- derived --------------------------------------------------------------
+    // While a cell is settling, judge every rule as if it were still empty —
+    // its real value still shows, only the verdict is deferred.
+    const gracedCells = useMemo(() => {
+        if (settling === null) return cells;
+        const view = cells.slice();
+        view[settling] = 0;
+        return view;
+    }, [cells, settling]);
     const conflicts = useMemo(
-        () => (puzzle ? findConflicts(puzzle, cells) : new Set<number>()),
-        [puzzle, cells],
+        () => (puzzle ? findConflicts(puzzle, gracedCells) : new Set<number>()),
+        [puzzle, gracedCells],
     );
     const broken = useMemo(
-        () => (puzzle ? brokenLinks(puzzle, cells) : new Set<number>()),
-        [puzzle, cells],
+        () => (puzzle ? brokenLinks(puzzle, gracedCells) : new Set<number>()),
+        [puzzle, gracedCells],
     );
     const filled = cells.filter((c) => c !== 0).length;
     // A finished board is fully described by its cells — no separate win flag.
@@ -201,12 +233,20 @@ export default function TangoGame() {
             setHistory((h) => [...h.slice(-200), prev]);
             setBoard(next);
             recordIfWon(next);
+
+            // Re-arm the grace window on this cell rather than start a second,
+            // independent one — a same-cell double-tap is one gesture, and the
+            // clock should run from its last tap, not its first.
+            if (settleTimer.current) clearTimeout(settleTimer.current);
+            setSettling(index);
+            settleTimer.current = setTimeout(() => setSettling(null), CONFLICT_GRACE_MS);
         },
         [puzzle, won, setBoard, recordIfWon],
     );
 
     const undo = () => {
         if (!history.length) return;
+        releaseSettling();
         setBoard(history[history.length - 1]);
         setHistory(history.slice(0, -1));
     };
@@ -215,6 +255,7 @@ export default function TangoGame() {
     // puzzle, not something you filled in.
     const clear = () => {
         if (!puzzle) return;
+        releaseSettling();
         setHistory((h) => [...h.slice(-200), cells]);
         setBoard(startingCells(puzzle));
     };
